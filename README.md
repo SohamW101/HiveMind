@@ -19,19 +19,30 @@ Single-Agent-implementation/
     └── env.py            # The core Reinforcement Learning environment class
 ```
 
-## Setup & Installation
+## Installation (Important)
 
-To install the environment so it can be imported from anywhere on your machine, navigate to this directory and run:
+Due to PyBullet's heavy C++ physics engine requirements, a standard `pip install` may fail on Windows if you do not have Microsoft Visual Studio C++ compilers correctly configured. To guarantee cross-platform compatibility without compiler issues, this project uses **Miniconda** to fetch pre-compiled binaries.
 
+1. **Install Miniconda:** If you don't have it, download and install [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
+2. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd Single-Agent-implementation
+   ```
+3. **Create the isolated environment:**
+   ```bash
+   conda env create -f environment.yml
+   ```
+4. **Activate the environment:**
+   ```bash
+   conda activate hivemind
+   ```
+
+## Running the Test Environment
+
+To verify that the PyBullet physics engine is loading correctly:
 ```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
-You can verify the installation by running the test script:
-
-```bash
-python scripts/test_env.py
+python test_env.py
 ```
 
 ## Next Steps
