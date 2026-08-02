@@ -45,6 +45,12 @@ To verify that the PyBullet physics engine is loading correctly:
 python test_env.py
 ```
 
+To verify full environment mechanics (smooth substep navigation, 360deg LiDAR occupancy grid, pickup & delivery logic):
+
+```bash
+python test_run.py
+```
+
 ## Next Steps
 
 This repository provides a clean API skeleton. The team needs to build the following components into `env.py`:
