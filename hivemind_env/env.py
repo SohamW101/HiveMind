@@ -6,6 +6,7 @@ import pybullet_data
 import random
 from collections import deque
 import math
+import time
 
 def _bfs_path_exists(grid, start, goal):
     """Checks if a valid path exists between start and goal on a binary grid."""
@@ -119,12 +120,14 @@ class HiveMindSingleAgentEnv(gym.Env):
             self.obstacle_ids.append(obs_id)
 
         # Static Boundary Walls around the 20x20 grid (4.0m x 4.0m)
+        self.wall_ids = []
         wall_half_extents = [(2.2, 0.1, 0.2), (2.2, 0.1, 0.2), (0.1, 2.0, 0.2), (0.1, 2.0, 0.2)]
         wall_positions = [(0, 2.1, 0.1), (0, -2.1, 0.1), (-2.1, 0, 0.1), (2.1, 0, 0.1)]
         for he, pos in zip(wall_half_extents, wall_positions):
             w_col = pb.createCollisionShape(pb.GEOM_BOX, halfExtents=he, physicsClientId=self.client_id)
             w_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=he, rgbaColor=[0.2, 0.2, 0.2, 1], physicsClientId=self.client_id)
-            pb.createMultiBody(baseMass=0, baseCollisionShapeIndex=w_col, baseVisualShapeIndex=w_vis, basePosition=pos, physicsClientId=self.client_id)
+            w_id = pb.createMultiBody(baseMass=0, baseCollisionShapeIndex=w_col, baseVisualShapeIndex=w_vis, basePosition=pos, physicsClientId=self.client_id)
+            self.wall_ids.append(w_id)
             
         # Draw grid lines for visualization
         if self.render_mode == "human":
@@ -178,6 +181,11 @@ class HiveMindSingleAgentEnv(gym.Env):
             if _bfs_path_exists(grid, r_pos, res_pos) and _bfs_path_exists(grid, res_pos, dep_pos):
                 return r_pos, res_pos, dep_pos, obstacles
 
+    def _step_substep(self):
+        pb.stepSimulation(physicsClientId=self.client_id)
+        if self.render_mode == "human":
+            time.sleep(0.015)  # 60 FPS smooth GUI visual delay per physics sub-step
+
     def step(self, action):
         self.current_step += 1
         reward = -0.01  # Time penalty
@@ -185,42 +193,78 @@ class HiveMindSingleAgentEnv(gym.Env):
         truncated = self.current_step >= self.max_steps
         
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
+        rx, ry, _ = robot_pos
         yaw = pb.getEulerFromQuaternion(robot_orn)[2]
-        
-        lin_vel = 0.0
-        ang_vel = 0.0
-        
-        if action == 0:
-            lin_vel = 0.5
-        elif action == 1:
-            lin_vel = -0.5
-        elif action == 2:
-            ang_vel = 2.0
-        elif action == 3:
-            ang_vel = -2.0
-            
-        vx = lin_vel * math.cos(yaw)
-        vy = lin_vel * math.sin(yaw)
-        
-        pb.resetBaseVelocity(self.robot_id, linearVelocity=[vx, vy, 0], angularVelocity=[0, 0, ang_vel], physicsClientId=self.client_id)
-        
-        # Step simulation for a few frames to make movement noticeable per step
-        for _ in range(20):
-            pb.stepSimulation(physicsClientId=self.client_id)
-            # If carrying, teleport resource to robot
-            if self.is_carrying:
-                r_pos, r_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
-                # carry above robot
-                pb.resetBasePositionAndOrientation(self.resource_id, [r_pos[0], r_pos[1], r_pos[2]+0.1], r_orn, physicsClientId=self.client_id)
-        
+
+        prev_carrying = self.is_carrying
+        res_pos_world, _ = pb.getBasePositionAndOrientation(self.resource_id, physicsClientId=self.client_id)
+        dep_pos_world, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
+        target_pos_world = res_pos_world[:2] if not prev_carrying else dep_pos_world[:2]
+        dist_prev = np.linalg.norm(np.array([rx, ry]) - np.array(target_pos_world))
+
+        num_substeps = 30  # 30 frames for smooth visual transition
+
+        if action == 0:  # Move Forward 0.2m (1 cell)
+            target_x = rx + self.cell_size * math.cos(yaw)
+            target_y = ry + self.cell_size * math.sin(yaw)
+            for i in range(1, num_substeps + 1):
+                alpha = i / float(num_substeps)
+                ix = rx + (target_x - rx) * alpha
+                iy = ry + (target_y - ry) * alpha
+                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, 0.05], robot_orn, physicsClientId=self.client_id)
+                self._step_substep()
+                if self.is_carrying:
+                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, 0.15], robot_orn, physicsClientId=self.client_id)
+
+        elif action == 1:  # Move Backward 0.2m (1 cell)
+            target_x = rx - self.cell_size * math.cos(yaw)
+            target_y = ry - self.cell_size * math.sin(yaw)
+            for i in range(1, num_substeps + 1):
+                alpha = i / float(num_substeps)
+                ix = rx + (target_x - rx) * alpha
+                iy = ry + (target_y - ry) * alpha
+                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, 0.05], robot_orn, physicsClientId=self.client_id)
+                self._step_substep()
+                if self.is_carrying:
+                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, 0.15], robot_orn, physicsClientId=self.client_id)
+
+        elif action == 2:  # Turn Left 90 degrees (+pi/2)
+            target_yaw = yaw + (math.pi / 2.0)
+            for i in range(1, num_substeps + 1):
+                alpha = i / float(num_substeps)
+                iyaw = yaw + (target_yaw - yaw) * alpha
+                iorn = pb.getQuaternionFromEuler([0, 0, iyaw], physicsClientId=self.client_id)
+                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, 0.05], iorn, physicsClientId=self.client_id)
+                self._step_substep()
+                if self.is_carrying:
+                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, 0.15], iorn, physicsClientId=self.client_id)
+
+        elif action == 3:  # Turn Right 90 degrees (-pi/2)
+            target_yaw = yaw - (math.pi / 2.0)
+            for i in range(1, num_substeps + 1):
+                alpha = i / float(num_substeps)
+                iyaw = yaw + (target_yaw - yaw) * alpha
+                iorn = pb.getQuaternionFromEuler([0, 0, iyaw], physicsClientId=self.client_id)
+                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, 0.05], iorn, physicsClientId=self.client_id)
+                self._step_substep()
+                if self.is_carrying:
+                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, 0.15], iorn, physicsClientId=self.client_id)
+
+        else:  # Actions 4, 5, 6 (Pickup, Drop, Stay)
+            for _ in range(num_substeps):
+                self._step_substep()
+                if self.is_carrying:
+                    r_pos, r_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [r_pos[0], r_pos[1], 0.15], r_orn, physicsClientId=self.client_id)
+
         # Action 4: Pick up
         if action == 4 and not self.is_carrying:
             robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
             res_pos, _ = pb.getBasePositionAndOrientation(self.resource_id, physicsClientId=self.client_id)
             dist = np.linalg.norm(np.array(robot_pos) - np.array(res_pos))
-            if dist <= self.cell_size * 1.0: # Highly constrained pickup range
+            if dist <= self.cell_size * 1.25:  # 0.25m pickup range
                 self.is_carrying = True
-                reward += 1.0
+                reward += 2.0
                 
         # Action 5: Drop off
         if action == 5 and self.is_carrying:
@@ -238,40 +282,106 @@ class HiveMindSingleAgentEnv(gym.Env):
                 r_pos, r_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
                 pb.resetBasePositionAndOrientation(self.resource_id, [r_pos[0], r_pos[1], 0.05], r_orn, physicsClientId=self.client_id)
 
-        # Stop velocity after step
-        pb.resetBaseVelocity(self.robot_id, linearVelocity=[0, 0, 0], angularVelocity=[0, 0, 0], physicsClientId=self.client_id)
-        
+        # Collision detection (Obstacles & Wall boundaries)
+        contacts = pb.getContactPoints(bodyA=self.robot_id, physicsClientId=self.client_id)
+        for contact in contacts:
+            bodyB = contact[2]
+            if bodyB in self.obstacle_ids or bodyB in self.wall_ids:
+                reward -= 2.0
+                terminated = True
+                break
+
+        # Potential-Based Reward Shaping (PBRS)
+        if not terminated and prev_carrying == self.is_carrying:
+            curr_robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
+            dist_curr = np.linalg.norm(np.array(curr_robot_pos[:2]) - np.array(target_pos_world))
+            pbrs_reward = (dist_prev - dist_curr) * 1.0
+            reward += pbrs_reward
+
         obs = self._get_obs()
         info = self._get_info()
         return obs, reward, terminated, truncated, info
+
+    def _get_lidar_scan(self, num_rays=36, max_range=1.5):
+        """Simulate 360-degree 2D LiDAR using PyBullet rayTestBatch."""
+        robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
+        rx, ry, rz = robot_pos
+        yaw = pb.getEulerFromQuaternion(robot_orn)[2]
+
+        ray_froms = []
+        ray_tos = []
+        angles = np.linspace(0, 2 * np.pi, num_rays, endpoint=False)
+
+        for angle in angles:
+            abs_angle = yaw + angle
+            ray_froms.append([rx, ry, rz + 0.05])
+            ray_tos.append([
+                rx + max_range * math.cos(abs_angle),
+                ry + max_range * math.sin(abs_angle),
+                rz + 0.05
+            ])
+
+        results = pb.rayTestBatch(ray_froms, ray_tos, physicsClientId=self.client_id)
+        return results, ray_froms, ray_tos
 
     def _get_obs(self):
         grid = np.zeros((self.obs_size, self.obs_size, 5), dtype=np.float32)
         
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
-        rr, rc = self._world_to_grid(robot_pos[0], robot_pos[1])
+        rx, ry, _ = robot_pos
         yaw = pb.getEulerFromQuaternion(robot_orn)[2]
-        
-        # We will keep this simple for now: fill the local grid around the robot
-        # Channel 0: obstacles, Channel 1: resource, Channel 2: depot, Channel 3: boundaries, Channel 4: heading
+
         half_obs = self.obs_size // 2
-        
-        for r_offset in range(-half_obs, half_obs + 1):
-            for c_offset in range(-half_obs, half_obs + 1):
-                r = rr + r_offset
-                c = rc + c_offset
-                local_r = r_offset + half_obs
-                local_c = c_offset + half_obs
-                
-                # Boundary
-                if r < 0 or r >= self.grid_size or c < 0 or c >= self.grid_size:
-                    grid[local_r, local_c, 3] = 1.0
-                    continue
-                    
-                # We can refine obstacles/resources based on world positions if needed.
-                # For now, just a placeholder. 
-                # (In a real scenario, you query AABBs from PyBullet)
-                
+
+        # Get LiDAR hits for obstacles / walls
+        lidar_results, _, _ = self._get_lidar_scan(num_rays=36, max_range=1.5)
+        for hit in lidar_results:
+            hit_uid, _, hit_frac, hit_pos, _ = hit
+            if hit_uid >= 0 and hit_frac < 1.0:
+                hx, hy = hit_pos[0], hit_pos[1]
+                # Convert world hit position to egocentric coordinates (forward=dx, left=dy)
+                rel_x = hx - rx
+                rel_y = hy - ry
+                dx = rel_x * math.cos(yaw) + rel_y * math.sin(yaw)
+                dy = -rel_x * math.sin(yaw) + rel_y * math.cos(yaw)
+
+                local_r = int(round(half_obs - (dx / self.cell_size)))
+                local_c = int(round(half_obs - (dy / self.cell_size)))
+
+                if 0 <= local_r < self.obs_size and 0 <= local_c < self.obs_size:
+                    grid[local_r, local_c, 0] = 1.0  # Obstacle channel
+
+        # Populate Egocentric Grid for Resource, Depot, Boundaries, and Self-Agent
+        res_pos, _ = pb.getBasePositionAndOrientation(self.resource_id, physicsClientId=self.client_id)
+        dep_pos, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
+
+        for r_idx in range(self.obs_size):
+            for c_idx in range(self.obs_size):
+                dx = (half_obs - r_idx) * self.cell_size
+                dy = (half_obs - c_idx) * self.cell_size
+
+                # Transform local ego offset to world coordinates
+                wx = rx + dx * math.cos(yaw) - dy * math.sin(yaw)
+                wy = ry + dx * math.sin(yaw) + dy * math.cos(yaw)
+
+                # Channel 3: Boundary / Void (arena bounds are 4m x 4m -> [-2.0, 2.0])
+                if abs(wx) >= 2.0 or abs(wy) >= 2.0:
+                    grid[r_idx, c_idx, 3] = 1.0
+
+                # Channel 1: Resource
+                if not self.is_carrying:
+                    if math.hypot(wx - res_pos[0], wy - res_pos[1]) <= self.cell_size * 0.5:
+                        grid[r_idx, c_idx, 1] = 1.0
+
+                # Channel 2: Depot
+                if math.hypot(wx - dep_pos[0], wy - dep_pos[1]) <= self.cell_size * 0.7:
+                    grid[r_idx, c_idx, 2] = 1.0
+
+        # Channel 4: Self-Agent center & heading indicator
+        grid[half_obs, half_obs, 4] = 1.0  # Center cell (robot location)
+        if half_obs - 1 >= 0:
+            grid[half_obs - 1, half_obs, 4] = 0.5
+
         return {
             "grid": grid,
             "is_carrying": int(self.is_carrying)
@@ -282,9 +392,12 @@ class HiveMindSingleAgentEnv(gym.Env):
             robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         else:
             robot_pos = (0.0, 0.0, 0.0)
+        lidar_results, _, _ = self._get_lidar_scan()
+        hit_distances = [hit[2] * 1.5 for hit in lidar_results]
         return {
             "difficulty": self.difficulty_level,
-            "robot_pos": robot_pos
+            "robot_pos": robot_pos,
+            "lidar_distances": hit_distances
         }
 
     def render(self):

@@ -3,7 +3,7 @@ import hivemind_env
 
 def main():
     print("Initializing HiveMind Single-Agent Environment...")
-    env = gym.make("HiveMind-SingleAgent-v0", render_mode="human", difficulty_level=1)
+    env = gym.make("HiveMind-SingleAgent", render_mode="DIRECT", difficulty_level=1)
     
     obs, info = env.reset()
     print("Environment reset successfully.")
