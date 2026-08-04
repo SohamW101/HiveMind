@@ -31,7 +31,6 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor
-from stable_baselines3.common.logger import configure
 
 import hivemind_env  # noqa: F401  registers "HiveMind-SingleAgent"
 
@@ -87,8 +86,8 @@ class HiveMindExtractor(BaseFeaturesExtractor):
         if grid.shape[-1] == self.in_channels:      # (B,H,W,C) -> (B,C,H,W)
             grid = grid.permute(0, 3, 1, 2).contiguous()
         flag = obs["is_carrying"].float()
-        # Flatten to (N, -1) to handle extra singleton dimensions from SB3 rollout buffer
-        flag = flag.view(flag.shape[0], -1)
+        if flag.dim() == 1:
+            flag = nn.functional.one_hot(flag.long(), self.flag_head[0].in_features).float()
         return th.cat([self.cnn_head(self.cnn(grid.float())), self.flag_head(flag)], dim=1)
 
 
@@ -164,10 +163,6 @@ def train(a: argparse.Namespace) -> None:
             verbose=1, seed=a.seed, device=a.device,
             tensorboard_log=str(run_dir / "tb") if a.tensorboard else None,
         )
-
-    # Set up logger to save progress.csv (which contains the loss curves)
-    new_logger = configure(str(run_dir), ["stdout", "csv"])
-    model.set_logger(new_logger)
 
     callbacks = [
         StatsCallback(),
