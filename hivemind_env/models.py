@@ -31,8 +31,8 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
             dummy_grid = torch.zeros(1, 5, 15, 15)
             cnn_output_dim = self.cnn(dummy_grid).shape[1]
             
-        # Total features = CNN features + 1 (is_carrying flag)
-        total_concat_dim = cnn_output_dim + 1
+        # Total features = CNN features + 2 (is_carrying flag one-hot encoded by SB3)
+        total_concat_dim = cnn_output_dim + 2
         
         # Final linear layer to project to requested `features_dim`
         self.linear = nn.Sequential(
@@ -52,9 +52,8 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         
         # 2. Process is_carrying flag
         is_carrying = observations["is_carrying"].float()
-        # Ensure it has shape (N, 1)
-        if len(is_carrying.shape) == 1:
-            is_carrying = is_carrying.unsqueeze(1)
+        # Flatten to ensure it's 2D (N, features) regardless of how SB3 one-hots it
+        is_carrying = is_carrying.view(is_carrying.shape[0], -1)
             
         # 3. Concatenate
         combined = torch.cat((cnn_features, is_carrying), dim=1)

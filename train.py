@@ -69,7 +69,7 @@ if __name__ == "__main__":
     
     print("Starting training (10,000 steps)...")
     # Train for 10,000 steps as a verification test
-    model.learn(total_timesteps=10000, callback=curriculum_callback)
+    model.learn(total_timesteps=5000000, callback=curriculum_callback)
     
     print("Training complete! Saving model...")
     os.makedirs("models", exist_ok=True)
