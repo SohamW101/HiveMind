@@ -1,0 +1,18 @@
+{
+  "mode": "train",
+  "run_name": "ppo",
+  "difficulty": 3,
+  "seed": 0,
+  "device": "auto",
+  "total_timesteps": 1000000,
+  "n_envs": 8,
+  "n_steps": 512,
+  "batch_size": 256,
+  "lr": 0.0003,
+  "ent_coef": 0.01,
+  "no_subproc": false,
+  "tensorboard": false,
+  "load_from": null,
+  "model": null,
+  "episodes": 20
+}
