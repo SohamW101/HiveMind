@@ -14,8 +14,10 @@ Single-Agent-implementation/
 ├── pyproject.toml        # Package definition for pip installation
 ├── scripts/
 │   └── test_env.py       # Script to test if the environment loads correctly
+├── train.py              # Master PPO training script using Stable-Baselines3
 └── hivemind_env/
     ├── __init__.py       # Registers the Gym environment
+    ├── models.py         # Custom CNN PyTorch feature extractor
     └── env.py            # The core Reinforcement Learning environment class
 ```
 
@@ -33,9 +35,10 @@ Due to PyBullet's heavy C++ physics engine requirements, a standard `pip install
    ```bash
    conda env create -f environment.yml
    ```
-4. **Activate the environment:**
+4. **Activate the environment and install ML libraries:**
    ```bash
    conda activate hivemind
+   conda install -y -c conda-forge stable-baselines3 tensorboard pytorch
    ```
 
 ## Running the Test Environment
@@ -51,10 +54,24 @@ To verify full environment mechanics (smooth substep navigation, 360deg LiDAR oc
 python test_run.py
 ```
 
-## Next Steps
+## Training the AI (Phase 2)
 
-This repository provides a clean API skeleton. The team needs to build the following components into `env.py`:
-1. **PyBullet Physics**: Connect to PyBullet and spawn the robot, obstacles, resource, and depot.
-2. **Action Kinematics**: Map the discrete actions (0-5) to differential drive wheel velocities.
-3. **LiDAR & Observation**: Implement raycasting to construct the `15x15x5` egocentric occupancy grid.
-4. **Reward Logic**: Implement distance shaping and pickup/delivery logic.
+The environment integrates with **Stable-Baselines3** and **PyTorch** to train a Proximal Policy Optimization (PPO) agent. The training script uses a Custom CNN to process the 15x15 LiDAR grid, and a `CurriculumCallback` to automatically increase the difficulty as the AI learns.
+
+To begin training across 4 parallel CPU cores:
+```bash
+python train.py
+```
+
+### Monitoring Training
+To visualize the AI's learning curve (rewards, episode length, etc.), open a second terminal and run TensorBoard:
+```bash
+tensorboard --logdir=./tensorboard_logs/
+```
+Navigate to `http://localhost:6006` in your browser.
+
+## Next Steps (Phase 3 & 4)
+
+With the Single-Agent environment completely operational (perfect physics, LiDAR, and PBRS) and the PPO architecture established, future phases will focus on:
+1. **Multi-Agent Scaling**: Transitioning the single robot to a true "HiveMind" swarm of independent agents.
+2. **Advanced Physics Integration**: Introducing surface friction variations (mud, ice) to test robust routing policies.
