@@ -1,7 +1,7 @@
 import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from hivemind_env.env import HiveMindSingleAgentEnv
 from hivemind_env.models import CustomCombinedExtractor
 import numpy as np
@@ -48,7 +48,9 @@ def make_env(difficulty_level=1):
     return _init
 
 if __name__ == "__main__":
-    num_cpu = 4  # Spawn 4 environments for testing
+    # Dynamically scale to use up to 16 CPU cores on the server
+    num_cpu = min(16, os.cpu_count() or 4)
+    print(f"Server configuration detected: Spawning {num_cpu} parallel environments.")
     
     # Needs to be inside __main__ for SubprocVecEnv on Windows
     env = SubprocVecEnv([make_env(difficulty_level=1) for _ in range(num_cpu)])
@@ -60,19 +62,28 @@ if __name__ == "__main__":
     )
     
     print("Initializing PPO model with Custom CNN Extractor...")
+    # PyTorch 2.x drops support for GTX 10-series (sm_61). Fallback to CPU on older GPUs.
+    device = "cuda" if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7 else "cpu"
+    print(f"Using device: {device}")
+    
     # Initialize PPO
     model = PPO("MultiInputPolicy", env, policy_kwargs=policy_kwargs, 
-                verbose=1, tensorboard_log="./tensorboard_logs/")
+                verbose=1, tensorboard_log="./tensorboard_logs/", device=device)
     
-    # Setup callback
+    # Setup callbacks
     curriculum_callback = CurriculumCallback(check_freq=500)
+    checkpoint_callback = CheckpointCallback(
+        save_freq=100000 // num_cpu,
+        save_path="./models/checkpoints/",
+        name_prefix="ppo_hivemind"
+    )
     
-    print("Starting training (10,000 steps)...")
-    # Train for 10,000 steps as a verification test
-    model.learn(total_timesteps=5000000, callback=curriculum_callback)
+    print("Starting overnight training (5,000,000 steps)...")
+    # Train for a massive overnight run
+    model.learn(total_timesteps=5_000_000, callback=[curriculum_callback, checkpoint_callback])
     
-    print("Training complete! Saving model...")
+    print("Training complete! Saving final model...")
     os.makedirs("models", exist_ok=True)
-    model.save("models/ppo_hivemind_test")
+    model.save("models/ppo_hivemind_final")
     env.close()
     print("Done!")

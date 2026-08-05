@@ -291,18 +291,31 @@ class HiveMindSingleAgentEnv(gym.Env):
                 terminated = True
                 break
 
-        # Potential-Based Reward Shaping (PBRS)
+        # Potential-Based Reward Shaping (PBRS) - The Attractive Force
         if not terminated and prev_carrying == self.is_carrying:
             curr_robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
             dist_curr = np.linalg.norm(np.array(curr_robot_pos[:2]) - np.array(target_pos_world))
             pbrs_reward = (dist_prev - dist_curr) * 1.0
             reward += pbrs_reward
 
+        # APF Repulsive Force (LiDAR proximity)
+        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
+        repulsive_penalty = 0.0
+        for hit in lidar_results:
+            hit_uid = hit[0]
+            hit_frac = hit[2]
+            if hit_uid >= 0 and hit_frac < 1.0:
+                hit_dist = hit_frac * 2.0  # max_range is 2.0
+                # Apply repulsive force if obstacle is closer than 0.4m
+                if 0.01 < hit_dist < 0.4:
+                    repulsive_penalty -= 0.02 * (1.0 / hit_dist)
+        reward += repulsive_penalty
+
         obs = self._get_obs()
         info = self._get_info()
         return obs, reward, terminated, truncated, info
 
-    def _get_lidar_scan(self, num_rays=36, max_range=1.5):
+    def _get_lidar_scan(self, num_rays=180, max_range=2.0):
         """Simulate 360-degree 2D LiDAR using PyBullet rayTestBatch."""
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         rx, ry, rz = robot_pos
@@ -334,7 +347,7 @@ class HiveMindSingleAgentEnv(gym.Env):
         half_obs = self.obs_size // 2
 
         # Get LiDAR hits for obstacles / walls
-        lidar_results, _, _ = self._get_lidar_scan(num_rays=36, max_range=1.5)
+        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
         for hit in lidar_results:
             hit_uid, _, hit_frac, hit_pos, _ = hit
             if hit_uid >= 0 and hit_frac < 1.0:
@@ -392,8 +405,8 @@ class HiveMindSingleAgentEnv(gym.Env):
             robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         else:
             robot_pos = (0.0, 0.0, 0.0)
-        lidar_results, _, _ = self._get_lidar_scan()
-        hit_distances = [hit[2] * 1.5 for hit in lidar_results]
+        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
+        hit_distances = [hit[2] * 2.0 for hit in lidar_results]
         return {
             "difficulty": self.difficulty_level,
             "robot_pos": robot_pos,
