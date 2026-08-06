@@ -94,10 +94,28 @@ class HiveMindSingleAgentEnv(gym.Env):
         resx, resy = self._grid_to_world(res_pos[0], res_pos[1])
         dx, dy = self._grid_to_world(dep_pos[0], dep_pos[1])
 
-        # Robot
-        robot_col = pb.createCollisionShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.4, self.cell_size*0.4, 0.05], physicsClientId=self.client_id)
-        robot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.4, self.cell_size*0.4, 0.05], rgbaColor=[0, 0, 1, 1], physicsClientId=self.client_id)
-        self.robot_id = pb.createMultiBody(baseMass=1.0, baseCollisionShapeIndex=robot_col, baseVisualShapeIndex=robot_vis, basePosition=[rx, ry, 0.05], physicsClientId=self.client_id)
+        # Robot URDF loading with backward-compatible fallback
+        import os
+        urdf_path = os.path.join(os.path.dirname(__file__), "assets", "diff_drive_bot.urdf")
+        if os.path.exists(urdf_path):
+            self.robot_id = pb.loadURDF(urdf_path, basePosition=[rx, ry, 0.0], physicsClientId=self.client_id)
+            self.has_urdf_wheels = True
+            self.left_wheel_indices = []
+            self.right_wheel_indices = []
+            for i in range(pb.getNumJoints(self.robot_id, physicsClientId=self.client_id)):
+                info = pb.getJointInfo(self.robot_id, i, physicsClientId=self.client_id)
+                jname = info[1].decode("utf-8")
+                if "left_wheel" in jname:
+                    self.left_wheel_indices.append(i)
+                elif "right_wheel" in jname:
+                    self.right_wheel_indices.append(i)
+        else:
+            self.has_urdf_wheels = False
+            self.left_wheel_indices = []
+            self.right_wheel_indices = []
+            robot_col = pb.createCollisionShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.4, self.cell_size*0.4, 0.05], physicsClientId=self.client_id)
+            robot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.4, self.cell_size*0.4, 0.05], rgbaColor=[0, 0, 1, 1], physicsClientId=self.client_id)
+            self.robot_id = pb.createMultiBody(baseMass=1.0, baseCollisionShapeIndex=robot_col, baseVisualShapeIndex=robot_vis, basePosition=[rx, ry, 0.05], physicsClientId=self.client_id)
 
         # Resource
         res_col = pb.createCollisionShape(pb.GEOM_CYLINDER, radius=self.cell_size*0.3, height=0.1, physicsClientId=self.client_id)
@@ -181,8 +199,17 @@ class HiveMindSingleAgentEnv(gym.Env):
             if _bfs_path_exists(grid, r_pos, res_pos) and _bfs_path_exists(grid, res_pos, dep_pos):
                 return r_pos, res_pos, dep_pos, obstacles
 
-    def _step_substep(self):
+    def _step_substep(self, left_wheel_delta=0.0, right_wheel_delta=0.0):
+        if getattr(self, "has_urdf_wheels", False):
+            for idx in getattr(self, "left_wheel_indices", []):
+                pos = pb.getJointState(self.robot_id, idx, physicsClientId=self.client_id)[0]
+                pb.resetJointState(self.robot_id, idx, pos + left_wheel_delta, physicsClientId=self.client_id)
+            for idx in getattr(self, "right_wheel_indices", []):
+                pos = pb.getJointState(self.robot_id, idx, physicsClientId=self.client_id)[0]
+                pb.resetJointState(self.robot_id, idx, pos + right_wheel_delta, physicsClientId=self.client_id)
+
         pb.stepSimulation(physicsClientId=self.client_id)
+
         if self.render_mode == "human":
             time.sleep(0.015)  # 60 FPS smooth GUI visual delay per physics sub-step
 
@@ -195,6 +222,9 @@ class HiveMindSingleAgentEnv(gym.Env):
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         rx, ry, _ = robot_pos
         yaw = pb.getEulerFromQuaternion(robot_orn)[2]
+
+        base_z = 0.0 if getattr(self, "has_urdf_wheels", False) else 0.05
+        carry_z = 0.14 if getattr(self, "has_urdf_wheels", False) else 0.15
 
         prev_carrying = self.is_carrying
         res_pos_world, _ = pb.getBasePositionAndOrientation(self.resource_id, physicsClientId=self.client_id)
@@ -211,10 +241,10 @@ class HiveMindSingleAgentEnv(gym.Env):
                 alpha = i / float(num_substeps)
                 ix = rx + (target_x - rx) * alpha
                 iy = ry + (target_y - ry) * alpha
-                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, 0.05], robot_orn, physicsClientId=self.client_id)
-                self._step_substep()
+                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, base_z], robot_orn, physicsClientId=self.client_id)
+                self._step_substep(left_wheel_delta=0.190, right_wheel_delta=0.190)
                 if self.is_carrying:
-                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, 0.15], robot_orn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, carry_z], robot_orn, physicsClientId=self.client_id)
 
         elif action == 1:  # Move Backward 0.2m (1 cell)
             target_x = rx - self.cell_size * math.cos(yaw)
@@ -223,10 +253,10 @@ class HiveMindSingleAgentEnv(gym.Env):
                 alpha = i / float(num_substeps)
                 ix = rx + (target_x - rx) * alpha
                 iy = ry + (target_y - ry) * alpha
-                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, 0.05], robot_orn, physicsClientId=self.client_id)
-                self._step_substep()
+                pb.resetBasePositionAndOrientation(self.robot_id, [ix, iy, base_z], robot_orn, physicsClientId=self.client_id)
+                self._step_substep(left_wheel_delta=-0.190, right_wheel_delta=-0.190)
                 if self.is_carrying:
-                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, 0.15], robot_orn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [ix, iy, carry_z], robot_orn, physicsClientId=self.client_id)
 
         elif action == 2:  # Turn Left 90 degrees (+pi/2)
             target_yaw = yaw + (math.pi / 2.0)
@@ -234,10 +264,10 @@ class HiveMindSingleAgentEnv(gym.Env):
                 alpha = i / float(num_substeps)
                 iyaw = yaw + (target_yaw - yaw) * alpha
                 iorn = pb.getQuaternionFromEuler([0, 0, iyaw], physicsClientId=self.client_id)
-                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, 0.05], iorn, physicsClientId=self.client_id)
-                self._step_substep()
+                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, base_z], iorn, physicsClientId=self.client_id)
+                self._step_substep(left_wheel_delta=-0.127, right_wheel_delta=0.127)
                 if self.is_carrying:
-                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, 0.15], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, carry_z], iorn, physicsClientId=self.client_id)
 
         elif action == 3:  # Turn Right 90 degrees (-pi/2)
             target_yaw = yaw - (math.pi / 2.0)
@@ -245,17 +275,18 @@ class HiveMindSingleAgentEnv(gym.Env):
                 alpha = i / float(num_substeps)
                 iyaw = yaw + (target_yaw - yaw) * alpha
                 iorn = pb.getQuaternionFromEuler([0, 0, iyaw], physicsClientId=self.client_id)
-                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, 0.05], iorn, physicsClientId=self.client_id)
-                self._step_substep()
+                pb.resetBasePositionAndOrientation(self.robot_id, [rx, ry, base_z], iorn, physicsClientId=self.client_id)
+                self._step_substep(left_wheel_delta=0.127, right_wheel_delta=-0.127)
                 if self.is_carrying:
-                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, 0.15], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [rx, ry, carry_z], iorn, physicsClientId=self.client_id)
 
         else:  # Actions 4, 5, 6 (Pickup, Drop, Stay)
             for _ in range(num_substeps):
-                self._step_substep()
+                self._step_substep(left_wheel_delta=0.0, right_wheel_delta=0.0)
                 if self.is_carrying:
                     r_pos, r_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
-                    pb.resetBasePositionAndOrientation(self.resource_id, [r_pos[0], r_pos[1], 0.15], r_orn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(self.resource_id, [r_pos[0], r_pos[1], carry_z], r_orn, physicsClientId=self.client_id)
+
 
         # Action 4: Pick up
         if action == 4 and not self.is_carrying:
@@ -325,13 +356,14 @@ class HiveMindSingleAgentEnv(gym.Env):
         ray_tos = []
         angles = np.linspace(0, 2 * np.pi, num_rays, endpoint=False)
 
+        lidar_z = rz + 0.09 if getattr(self, "has_urdf_wheels", False) else rz + 0.05
         for angle in angles:
             abs_angle = yaw + angle
-            ray_froms.append([rx, ry, rz + 0.05])
+            ray_froms.append([rx, ry, lidar_z])
             ray_tos.append([
                 rx + max_range * math.cos(abs_angle),
                 ry + max_range * math.sin(abs_angle),
-                rz + 0.05
+                lidar_z
             ])
 
         results = pb.rayTestBatch(ray_froms, ray_tos, physicsClientId=self.client_id)
