@@ -15,7 +15,7 @@ def run_demo(model_path, difficulty, episodes):
         model = PPO.load(model_path)
     except FileNotFoundError:
         print(f"Error: Model not found at {model_path}.")
-        print("Please check the path. According to train.py, it should be at 'models/ppo_hivemind_test.zip'.")
+        print("Please check the path. According to train_v2.py, it should be at 'models/recurrent_ppo_hivemind_final.zip'.")
         return
         
     # Create the environment using the exact class used in train.py, but with human rendering
@@ -63,7 +63,7 @@ def run_demo(model_path, difficulty, episodes):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test and Verify the PPO model trained via train.py")
-    parser.add_argument("--model", type=str, default="models/ppo_hivemind_test.zip", 
+    parser.add_argument("--model", type=str, default="models/recurrent_ppo_hivemind_final.zip", 
                         help="Path to the trained model .zip file")
     parser.add_argument("--difficulty", type=int, default=1, choices=[1, 2, 3, 4],
                         help="Complexity/Difficulty level to test (1 to 4)")
