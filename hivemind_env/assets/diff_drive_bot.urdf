@@ -160,7 +160,31 @@
     <axis xyz="0 1 0"/>
   </joint>
 
-  <!-- LiDAR Sensor Mount Link -->
+  <!-- LiDAR Sensor Mount Post & Telescopic Joint -->
+  <link name="lidar_post_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.006" length="0.07"/>
+      </geometry>
+      <material name="mast_dark">
+        <color rgba="0.2 0.2 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="lidar_post_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_post_link"/>
+    <origin xyz="0 0 0.066" rpy="0 0 0"/>
+  </joint>
+
+  <!-- LiDAR Sensor Link (Prismatic Joint for Dynamic Height Elevation) -->
   <link name="lidar_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -184,10 +208,139 @@
     </collision>
   </link>
 
-  <joint name="lidar_joint" type="fixed">
+  <joint name="lidar_joint" type="prismatic">
     <parent link="base_link"/>
     <child link="lidar_link"/>
     <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.0" upper="0.07" effort="10.0" velocity="1.0"/>
+  </joint>
+
+  <!-- Robotic Arm Base Swivel Turret -->
+  <link name="arm_base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.1"/>
+      <inertia ixx="0.00002" ixy="0.0" ixz="0.0" iyy="0.00002" iyz="0.0" izz="0.00002"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.022" length="0.012"/>
+      </geometry>
+      <material name="arm_silver">
+        <color rgba="0.75 0.78 0.82 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="arm_yaw_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="arm_base_link"/>
+    <origin xyz="0 0 0.07" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159265" upper="3.14159265" effort="10.0" velocity="5.0"/>
+  </joint>
+
+  <!-- Robotic Arm Extension Boom -->
+  <link name="arm_boom_link">
+    <inertial>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="0.00001" ixy="0.0" ixz="0.0" iyy="0.00001" iyz="0.0" izz="0.00001"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.016 0.012"/>
+      </geometry>
+      <material name="chassis_navy">
+        <color rgba="0.12 0.22 0.42 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="arm_boom_joint" type="fixed">
+    <parent link="arm_base_link"/>
+    <child link="arm_boom_link"/>
+    <origin xyz="0 0 0.005" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Gripper Palm Crossbar Link -->
+  <link name="gripper_palm_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.03"/>
+      <inertia ixx="0.000005" ixy="0.0" ixz="0.0" iyy="0.000005" iyz="0.0" izz="0.000005"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.012 0.07 0.012"/>
+      </geometry>
+      <material name="accent_silver">
+        <color rgba="0.85 0.88 0.92 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="gripper_palm_joint" type="fixed">
+    <parent link="arm_boom_link"/>
+    <child link="gripper_palm_link"/>
+    <origin xyz="0.10 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Gripper Left Finger Link -->
+  <link name="left_finger_link">
+    <inertial>
+      <origin xyz="0.025 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="0.000002" ixy="0.0" ixz="0.0" iyy="0.000002" iyz="0.0" izz="0.000002"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.025 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.008 0.014"/>
+      </geometry>
+      <material name="lidar_cyan">
+        <color rgba="0.0 0.8 0.9 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="left_finger_joint" type="prismatic">
+    <parent link="gripper_palm_link"/>
+    <child link="left_finger_link"/>
+    <origin xyz="0 0.03 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.02" upper="0.02" effort="5.0" velocity="1.0"/>
+  </joint>
+
+  <!-- Gripper Right Finger Link -->
+  <link name="right_finger_link">
+    <inertial>
+      <origin xyz="0.025 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="0.000002" ixy="0.0" ixz="0.0" iyy="0.000002" iyz="0.0" izz="0.000002"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.025 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.008 0.014"/>
+      </geometry>
+      <material name="lidar_cyan">
+        <color rgba="0.0 0.8 0.9 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="gripper_palm_link"/>
+    <child link="right_finger_link"/>
+    <origin xyz="0 -0.03 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.02" upper="0.02" effort="5.0" velocity="1.0"/>
   </joint>
 
 </robot>
+
