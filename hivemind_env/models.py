@@ -27,8 +27,11 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
         )
         
         # Compute shape by doing one forward pass with dummy data
+        grid_shape = observation_space.spaces["grid"].shape
+        obs_size = grid_shape[0]
+        channels = grid_shape[2]
         with torch.no_grad():
-            dummy_grid = torch.zeros(1, 5, 15, 15)
+            dummy_grid = torch.zeros(1, channels, obs_size, obs_size)
             cnn_output_dim = self.cnn(dummy_grid).shape[1]
             
         # Total features = CNN features + 2 (is_carrying flag one-hot encoded by SB3)

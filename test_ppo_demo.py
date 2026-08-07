@@ -18,7 +18,7 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
     print(f"{'='*60}")
     
     render_mode = "human" if render else None
-    env = HiveMindSingleAgentEnv(render_mode=render_mode, difficulty_level=difficulty)
+    env = HiveMindSingleAgentEnv(render_mode=render_mode, difficulty_level=difficulty, obs_size=15)
     
     model = PPO.load(model_path, device="cpu")
     
@@ -116,10 +116,11 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
     }
 
 def main():
-    # Try all known PPO model paths
+    # Try all known PPO model paths in priority order
     candidates = [
-        "models/ppo_hivemind_test.zip",
-        "runs/ppo/final_model.zip",
+        "models/ppo_hivemind_v1_final.zip",          # ← v1 final (10M steps)
+        "models/checkpoints_ppo_v1/ppo_v1_8000000_steps.zip",  # ← 8M checkpoint fallback
+        "models/ppo_hivemind_test.zip",               # ← old test model
     ]
     
     model_path = None

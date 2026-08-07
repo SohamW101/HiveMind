@@ -128,7 +128,7 @@ def get_device() -> str:
 if __name__ == "__main__":
 
     # ── Hyperparameters ──────────────────────────────────────────────────────
-    TOTAL_TIMESTEPS   = 10_000_000
+    TOTAL_TIMESTEPS   = 20_000_000
     INITIAL_LR        = 3e-4          # Decays linearly to 0.0 over training
     N_STEPS           = 2048          # Steps collected per env per update
     BATCH_SIZE        = 512           # Minibatch size for gradient updates
@@ -141,9 +141,9 @@ if __name__ == "__main__":
     CURRICULUM_WINDOW = 100           # Rolling window size for success rate
     CHECK_FREQ        = 1000          # How often curriculum checks (in steps)
     CHECKPOINT_FREQ   = 500_000       # Save checkpoint every N steps
-    LOG_DIR           = "./tensorboard_logs_ppo_v1/"
-    CHECKPOINT_DIR    = "./models/checkpoints_ppo_v1/"
-    FINAL_MODEL_PATH  = "./models/ppo_hivemind_v1_final"
+    LOG_DIR           = "./tensorboard_logs_ppo_v2/"
+    CHECKPOINT_DIR    = "./models/checkpoints_ppo_v2/"
+    FINAL_MODEL_PATH  = "./models/ppo_hivemind_v2_final"
 
     # ── CPU count ────────────────────────────────────────────────────────────
     num_cpu = min(16, os.cpu_count() or 4)
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     # ── Feature extractor ────────────────────────────────────────────────────
     policy_kwargs = dict(
         features_extractor_class=CustomCombinedExtractor,
-        features_extractor_kwargs=dict(features_dim=256),
+        features_extractor_kwargs=dict(features_dim=512),
     )
 
     # ── PPO Model ────────────────────────────────────────────────────────────
@@ -195,12 +195,12 @@ if __name__ == "__main__":
     checkpoint_callback = CheckpointCallback(
         save_freq=CHECKPOINT_FREQ,
         save_path=CHECKPOINT_DIR,
-        name_prefix="ppo_v1",
+        name_prefix="ppo_v2",
     )
 
     # ── Training ─────────────────────────────────────────────────────────────
     print(
-        f"\n[Training] Starting 10,000,000 step run.\n"
+        f"\n[Training] Starting {TOTAL_TIMESTEPS:,} step run.\n"
         f"  Logs    : {LOG_DIR}\n"
         f"  Checkpts: {CHECKPOINT_DIR}\n"
         f"  Final   : {FINAL_MODEL_PATH}.zip\n"
@@ -208,7 +208,7 @@ if __name__ == "__main__":
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         callback=[curriculum_callback, checkpoint_callback],
-        tb_log_name="PPO_v1",       # TensorBoard run folder = tensorboard_logs_ppo_v1/PPO_v1_1/
+        tb_log_name="PPO_v2",       # TensorBoard run folder = tensorboard_logs_ppo_v2/PPO_v2_1/
         reset_num_timesteps=True,
     )
 

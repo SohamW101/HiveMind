@@ -29,7 +29,7 @@ def _bfs_path_exists(grid, start, goal):
 class HiveMindSingleAgentEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode=None, difficulty_level=1):
+    def __init__(self, render_mode=None, difficulty_level=1, obs_size=21):
         super().__init__()
         self.render_mode = render_mode
         self.difficulty_level = difficulty_level
@@ -41,9 +41,9 @@ class HiveMindSingleAgentEnv(gym.Env):
         # Actions: 0: Forward, 1: Backward, 2: Turn Left, 3: Turn Right, 4: Pick Up, 5: Drop Off, 6: Stay
         self.action_space = spaces.Discrete(7)
         
-        # Observation: Local grid around agent 15x15x5 
+        # Observation: Local grid around agent 15x15x5 or 21x21x5
         # Channels: 0: obstacles, 1: resources, 2: depot, 3: boundaries, 4: agent's heading
-        self.obs_size = 15
+        self.obs_size = obs_size
         self.observation_space = spaces.Dict({
             "grid": spaces.Box(low=0, high=1, shape=(self.obs_size, self.obs_size, 5), dtype=np.float32),
             "is_carrying": spaces.Discrete(2)
@@ -442,24 +442,19 @@ class HiveMindSingleAgentEnv(gym.Env):
                 break
 
         # Potential-Based Reward Shaping (PBRS) - The Attractive Force
+        # Dynamic scale: stronger pull when carrying (10.0) vs seeking resource (5.0)
+        pbrs_scale = 10.0 if self.is_carrying else 5.0
+        
         if not terminated and prev_carrying == self.is_carrying:
             curr_robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
             dist_curr = np.linalg.norm(np.array(curr_robot_pos[:2]) - np.array(target_pos_world))
-            pbrs_reward = (dist_prev - dist_curr) * 1.0
+            pbrs_reward = (dist_prev - dist_curr) * pbrs_scale
             reward += pbrs_reward
 
-        # APF Repulsive Force (LiDAR proximity)
-        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
-        repulsive_penalty = 0.0
-        for hit in lidar_results:
-            hit_uid = hit[0]
-            hit_frac = hit[2]
-            if hit_uid >= 0 and hit_frac < 1.0:
-                hit_dist = hit_frac * 2.0  # max_range is 2.0
-                # Apply repulsive force if obstacle is closer than 0.4m
-                if 0.01 < hit_dist < 0.4:
-                    repulsive_penalty -= 0.02 * (1.0 / hit_dist)
-        reward += repulsive_penalty
+        # APF Repulsive Force removed for Standard PPO.
+        # Collision termination (reward -= 2.0, terminated = True) already provides
+        # a clean, unambiguous wall-avoidance signal. The APF was redundant and caused
+        # the agent to avoid navigating near walls even when no collision was imminent.
 
         obs = self._get_obs()
         info = self._get_info()

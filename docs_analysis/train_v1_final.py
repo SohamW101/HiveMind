@@ -109,8 +109,8 @@ def get_device() -> str:
         cap = torch.cuda.get_device_capability()
         name = torch.cuda.get_device_name(0)
         if cap[0] >= 7:
-            print(f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) → Using CUDA (cuDNN disabled for stability)")
-            torch.backends.cudnn.enabled = False
+            print(f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) → Using CUDA")
+            torch.backends.cudnn.benchmark = True  # +10-15% speed on fixed-size inputs
             return "cuda"
         else:
             print(
@@ -149,18 +149,23 @@ if __name__ == "__main__":
     num_cpu = min(16, os.cpu_count() or 4)
     print(f"[Config] Spawning {num_cpu} parallel environments.")
 
+    # ── SubprocVecEnv start method (fork is faster on Linux servers) ─────────
+    if sys.platform != "win32":
+        import multiprocessing
+        multiprocessing.set_start_method("fork", force=True)
+
     # ── Build and wrap environment ───────────────────────────────────────────
     env = SubprocVecEnv([make_env(difficulty_level=1) for _ in range(num_cpu)])
     env = VecMonitor(env)  # Required for rollout/ep_rew_mean and rollout/ep_len_mean
-
-    # ── Device ───────────────────────────────────────────────────────────────
-    device = get_device()
 
     # ── Feature extractor ────────────────────────────────────────────────────
     policy_kwargs = dict(
         features_extractor_class=CustomCombinedExtractor,
         features_extractor_kwargs=dict(features_dim=256),
     )
+
+    # ── Device ───────────────────────────────────────────────────────────────
+    device = get_device()
 
     # ── PPO Model ────────────────────────────────────────────────────────────
     print("[Config] Initializing PPO with Standard Feed-Forward policy...")
