@@ -536,10 +536,29 @@ class HiveMindSingleAgentEnv(gym.Env):
             # Sub-sample every 5th ray (36 rays across 360 degrees, 10-degree spacing)
             step = 5
             ray_idx = 0
+            vis_z = 0.01  # Floor level height (below robot chassis and resource)
+            start_radius = 0.12  # Radius offset outside robot footprint
+
             for i in range(0, num_rays, step):
                 hit_uid, _, hit_frac, hit_pos, _ = results[i]
-                from_p = ray_froms[i]
-                to_p = hit_pos if (hit_uid >= 0 and hit_frac < 1.0) else ray_tos[i]
+                abs_angle = yaw + angles[i]
+
+                # Visual ray start point: offset by 0.12m from robot center at floor height z=0.01
+                from_p = [
+                    rx + start_radius * math.cos(abs_angle),
+                    ry + start_radius * math.sin(abs_angle),
+                    vis_z
+                ]
+
+                # Visual ray end point: at hit position (or max range) projected to floor height z=0.01
+                if hit_uid >= 0 and hit_frac < 1.0:
+                    to_p = [hit_pos[0], hit_pos[1], vis_z]
+                else:
+                    to_p = [
+                        rx + max_range * math.cos(abs_angle),
+                        ry + max_range * math.sin(abs_angle),
+                        vis_z
+                    ]
 
                 if hit_uid < 0 or hit_frac >= 1.0:
                     color = [0.0, 0.9, 0.2]  # Neon Green = Clear path
