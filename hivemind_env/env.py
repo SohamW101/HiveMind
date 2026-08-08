@@ -290,6 +290,28 @@ class HiveMindSingleAgentEnv(gym.Env):
 
         num_substeps = 30  # 30 frames for smooth visual transition
 
+        # HARDCODED PYTHON TAKEOVER FOR PICKUP & DROP OFF
+        # As soon as the bot is in an adjacent cell (dist <= 0.25m) OR taking any movement step
+        # (forward or backward) into the target cell, Python hardcoded takeover forces action 4 (Pickup) or 5 (Dropoff).
+        target_pos = res_pos_world[:2] if not prev_carrying else dep_pos_world[:2]
+        dist_to_target = np.linalg.norm(np.array([rx, ry]) - np.array(target_pos))
+
+        next_x, next_y = rx, ry
+        if action == 0:    # Forward
+            next_x = rx + self.cell_size * math.cos(yaw)
+            next_y = ry + self.cell_size * math.sin(yaw)
+        elif action == 1:  # Backward
+            next_x = rx - self.cell_size * math.cos(yaw)
+            next_y = ry - self.cell_size * math.sin(yaw)
+
+        next_dist_to_target = np.linalg.norm(np.array([next_x, next_y]) - np.array(target_pos))
+
+        if dist_to_target <= self.cell_size * 1.25 or next_dist_to_target < self.cell_size * 0.7:
+            if not prev_carrying:
+                action = 4  # Hardcoded Takeover -> Pick Up
+            else:
+                action = 5  # Hardcoded Takeover -> Drop Off
+
         if action == 0:  # Move Forward 0.2m (1 cell)
             target_x = rx + self.cell_size * math.cos(yaw)
             target_y = ry + self.cell_size * math.sin(yaw)
@@ -358,11 +380,14 @@ class HiveMindSingleAgentEnv(gym.Env):
                 start_finger = self.current_finger_pos
                 start_lidar = self.current_lidar_height
 
+                # Phase 1: Swivel to resource direction & grip
                 for i in range(1, num_substeps + 1):
                     alpha = i / float(num_substeps)
                     self.current_arm_yaw = start_arm_yaw + alpha * (target_arm_yaw - start_arm_yaw)
                     self.current_finger_pos = start_finger + alpha * (-0.01 - start_finger)
                     self.current_lidar_height = start_lidar + alpha * (0.07 - start_lidar)
+
+                    self._set_arm_and_lidar_joints(self.current_arm_yaw, self.current_finger_pos, self.current_lidar_height)
 
                     arm_world_angle = yaw + self.current_arm_yaw
                     target_res_x = rx + 0.15 * math.cos(arm_world_angle)
@@ -373,8 +398,22 @@ class HiveMindSingleAgentEnv(gym.Env):
 
                     self._step_substep(left_wheel_delta=0.0, right_wheel_delta=0.0)
 
+                # Phase 2: Smoothly swivel arm and carried resource back to front (0.0 rad)
+                if abs(target_arm_yaw) > 0.01:
+                    for i in range(1, num_substeps + 1):
+                        alpha = i / float(num_substeps)
+                        self.current_arm_yaw = target_arm_yaw * (1.0 - alpha)
+                        self._set_arm_and_lidar_joints(self.current_arm_yaw, -0.01, 0.07)
+
+                        arm_world_angle = yaw + self.current_arm_yaw
+                        res_x = rx + 0.15 * math.cos(arm_world_angle)
+                        res_y = ry + 0.15 * math.sin(arm_world_angle)
+                        pb.resetBasePositionAndOrientation(self.resource_id, [res_x, res_y, 0.05], robot_orn, physicsClientId=self.client_id)
+
+                        self._step_substep(left_wheel_delta=0.0, right_wheel_delta=0.0)
+
                 self.is_carrying = True
-                self.current_arm_yaw = target_arm_yaw
+                self.current_arm_yaw = 0.0
                 self.current_finger_pos = -0.01
                 self.current_lidar_height = 0.07
                 reward += 2.0

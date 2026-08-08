@@ -21,7 +21,7 @@ def main():
     # Create the environment with GUI enabled (render_mode="human")
     # We will show Level 4 (the hardest level with obstacles)
     # Note: v1 model was trained with obs_size=15
-    env = HiveMindSingleAgentEnv(render_mode="human", difficulty_level=4, obs_size=15)
+    env = HiveMindSingleAgentEnv(render_mode="human", difficulty_level=3, obs_size=15)
     
     num_episodes = 3
     print(f"\nStarting {num_episodes} episodes of Level 4...")
