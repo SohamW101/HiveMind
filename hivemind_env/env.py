@@ -29,10 +29,11 @@ def _bfs_path_exists(grid, start, goal):
 class HiveMindSingleAgentEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode=None, difficulty_level=1, obs_size=21):
+    def __init__(self, render_mode=None, difficulty_level=1, obs_size=21, show_lidar=None):
         super().__init__()
         self.render_mode = render_mode
         self.difficulty_level = difficulty_level
+        self.show_lidar = (render_mode == "human") if show_lidar is None else show_lidar
         self.dt = 1.0 / 240.0
         self.is_carrying = False
         self.grid_size = 20
@@ -82,6 +83,7 @@ class HiveMindSingleAgentEnv(gym.Env):
             
         self.is_carrying = False
         self.current_step = 0
+        self.lidar_line_ids = []
         
         pb.resetSimulation(physicsClientId=self.client_id)
         pb.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
@@ -525,6 +527,51 @@ class HiveMindSingleAgentEnv(gym.Env):
             ])
 
         results = pb.rayTestBatch(ray_froms, ray_tos, physicsClientId=self.client_id)
+
+        # Render visual LiDAR laser rays in PyBullet GUI mode using persistent line buffer reuse (0ms lag)
+        if getattr(self, "show_lidar", False) and self.render_mode == "human":
+            if not hasattr(self, "lidar_line_ids"):
+                self.lidar_line_ids = []
+
+            # Sub-sample every 5th ray (36 rays across 360 degrees, 10-degree spacing)
+            step = 5
+            ray_idx = 0
+            for i in range(0, num_rays, step):
+                hit_uid, _, hit_frac, hit_pos, _ = results[i]
+                from_p = ray_froms[i]
+                to_p = hit_pos if (hit_uid >= 0 and hit_frac < 1.0) else ray_tos[i]
+
+                if hit_uid < 0 or hit_frac >= 1.0:
+                    color = [0.0, 0.9, 0.2]  # Neon Green = Clear path
+                elif hit_uid in getattr(self, "obstacle_ids", []) or hit_uid in getattr(self, "wall_ids", []):
+                    color = [1.0, 0.1, 0.1]  # Bright Red = Obstacle / Wall
+                elif hit_uid == getattr(self, "resource_id", None):
+                    color = [1.0, 0.85, 0.0] # Gold Yellow = Resource
+                elif hit_uid == getattr(self, "depot_id", None):
+                    color = [0.0, 0.8, 1.0]  # Cyan Blue = Depot
+                else:
+                    color = [0.7, 0.7, 0.7]
+
+                if ray_idx < len(self.lidar_line_ids):
+                    pb.addUserDebugLine(
+                        from_p,
+                        to_p,
+                        lineColorRGB=color,
+                        lineWidth=1.5,
+                        replaceItemUniqueId=self.lidar_line_ids[ray_idx],
+                        physicsClientId=self.client_id
+                    )
+                else:
+                    line_id = pb.addUserDebugLine(
+                        from_p,
+                        to_p,
+                        lineColorRGB=color,
+                        lineWidth=1.5,
+                        physicsClientId=self.client_id
+                    )
+                    self.lidar_line_ids.append(line_id)
+                ray_idx += 1
+
         return results, ray_froms, ray_tos
 
 
