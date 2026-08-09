@@ -6,23 +6,28 @@ import gymnasium as gym
 class CustomCombinedExtractor(BaseFeaturesExtractor):
     """
     Custom feature extractor that splits the Dict observation space.
-    - Passes the 15x15x5 grid through a CNN.
+    - Passes the (obs_size x obs_size x 5) grid through a CNN.
     - Passes the `is_carrying` scalar through directly.
     - Concatenates the features into a single 1D tensor for the PPO MLP.
+
+    The CNN is fully convolutional, so it adapts to whatever obs_size the env reports:
+    15 -> 7 -> 3 gives 64*3*3 = 576 features (v1), 21 -> 10 -> 5 gives 64*5*5 = 1600 (v2).
+    Because that width is baked into `self.linear`, a saved model can only be loaded back
+    into an env with the same obs_size it was trained on.
     """
     def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 256):
         # We do not pass features_dim to super init immediately because we need to calculate it.
         # Actually, BaseFeaturesExtractor requires features_dim in super().__init__.
         super().__init__(observation_space, features_dim)
 
-        # CNN for the grid (15x15x5)
+        # CNN for the grid; two stride-1 convs each followed by a halving max-pool
         self.cnn = nn.Sequential(
             nn.Conv2d(in_channels=5, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),  # 15x15 -> 7x7
+            nn.MaxPool2d(kernel_size=2),  # obs_size -> obs_size // 2
             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),  # 7x7 -> 3x3
+            nn.MaxPool2d(kernel_size=2),  # obs_size // 2 -> obs_size // 4
             nn.Flatten()
         )
         
@@ -45,12 +50,11 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
 
     def forward(self, observations: dict) -> torch.Tensor:
         # 1. Process the Grid
-        grid = observations["grid"]
-        # grid shape from env is (N, 15, 15, 5). PyTorch Conv2D expects (N, 5, 15, 15).
-        # We permute the dimensions to match PyTorch format.
-        if grid.shape[-1] == 5:
-            grid = grid.permute(0, 3, 1, 2)
-            
+        # The env always emits NHWC (N, H, W, 5); PyTorch Conv2d wants NCHW (N, 5, H, W).
+        # SB3 leaves this Box untouched during preprocessing (it is float32, not a uint8
+        # image), so the permute is unconditional rather than sniffed from the shape.
+        grid = observations["grid"].permute(0, 3, 1, 2)
+
         cnn_features = self.cnn(grid)
         
         # 2. Process is_carrying flag

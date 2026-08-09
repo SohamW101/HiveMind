@@ -9,11 +9,17 @@ description = "A Single-Agent PyBullet Environment for RL Foraging"
 authors = [
     { name = "HiveMind Team" }
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
-    "gymnasium",
-    "numpy",
-    "pybullet"
+    "gymnasium>=0.28.1",
+    "numpy>=1.24.0",
+    "pybullet>=3.2.5",
+    # Every training and evaluation script imports these; they were previously undeclared
+    # and had to be conda-installed by hand per the README.
+    "stable-baselines3>=2.0.0",
+    "sb3-contrib>=2.0.0",
+    "torch>=2.0.0",
+    "tensorboard>=2.12.0",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +28,13 @@ dev = [
     "black",
     "flake8"
 ]
+
+# Explicit package list. Automatic discovery fails on this repo's flat layout - the many
+# top-level scripts (train.py, play_demo.py, test_*.py ...) look like competing top-level
+# modules to setuptools, so it refuses to guess and `pip install -e .` errors out.
+[tool.setuptools]
+packages = ["hivemind_env"]
+
+# The robot URDF is loaded at runtime by env.reset(); ship it with the package.
+[tool.setuptools.package-data]
+hivemind_env = ["assets/*.urdf"]

@@ -7,3 +7,11 @@ dependencies:
   - pybullet
   - gymnasium
   - numpy
+  # The ML stack used to be a manual `conda install` step in the README; declaring it
+  # here means `conda env create -f environment.yml` produces a runnable environment.
+  - pytorch
+  - tensorboard
+  - stable-baselines3
+  - pip
+  - pip:
+      - sb3-contrib>=2.0.0

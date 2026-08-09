@@ -4,4 +4,10 @@ pybullet>=3.2.5
 python-dotenv>=1.0.0
 tqdm
 rich
-sb3-contrib
+
+# Training / evaluation stack. These are imported by train*.py, play_demo.py and every
+# test_*.py, but used to be undeclared here and installed by hand.
+stable-baselines3>=2.0.0
+sb3-contrib>=2.0.0
+torch>=2.0.0
+tensorboard>=2.12.0

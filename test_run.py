@@ -4,26 +4,13 @@ import numpy as np
 import pybullet as pb
 import gymnasium as gym
 from collections import deque
-import hivemind_env
+import hivemind_env  # noqa: F401  (import registers the Gym env id)
 
-def draw_debug_lidar(env):
-    """Draws 3D visual debug lines in PyBullet GUI for all 36 LiDAR rays."""
-    unwrapped_env = env.unwrapped
-    lidar_results, ray_froms, ray_tos = unwrapped_env._get_lidar_scan(num_rays=36, max_range=1.5)
-    
-    pb.removeAllUserDebugItems(physicsClientId=unwrapped_env.client_id)
-    
-    for i, hit in enumerate(lidar_results):
-        hit_uid, _, hit_frac, hit_pos, _ = hit
-        from_p = ray_froms[i]
-        
-        if hit_uid >= 0 and hit_frac < 1.0:
-            # Ray hit an obstacle/wall (Red line)
-            pb.addUserDebugLine(from_p, hit_pos, [1, 0, 0], lineWidth=1.5, physicsClientId=unwrapped_env.client_id)
-        else:
-            # Clear ray path (Green line)
-            to_p = ray_tos[i]
-            pb.addUserDebugLine(from_p, to_p, [0, 1, 0], lineWidth=1.0, physicsClientId=unwrapped_env.client_id)
+# NOTE: this script used to carry its own draw_debug_lidar() that called
+# pb.removeAllUserDebugItems() every step. The env now renders its LiDAR itself into a
+# persistent line buffer (env.lidar_line_ids) and reuses those IDs via
+# replaceItemUniqueId - wiping all debug items invalidated them and also erased the grid
+# overlay drawn in reset(). Rendering is left to the env.
 
 def get_heading_idx(yaw):
     """Converts continuous yaw orientation to discrete heading index (0: +X, 1: +Y, 2: -X, 3: -Y)."""
@@ -40,13 +27,26 @@ def get_heading_idx(yaw):
     return 0
 
 def build_obstacle_grid(unwrapped):
-    """Reconstructs the 20x20 binary obstacle grid from PyBullet obstacles."""
+    """
+    Reconstructs the 20x20 binary obstacle grid from PyBullet obstacles.
+
+    Uses each body's AABB rather than its base position: obstacles come in 1x1, 1x2, 2x1
+    and 2x2 footprints, and marking only the centre cell left the other cells looking
+    free, so the BFS below happily planned straight through them.
+    """
     grid = np.zeros((unwrapped.grid_size, unwrapped.grid_size), dtype=np.int32)
     for obs_id in unwrapped.obstacle_ids:
-        pos, _ = pb.getBasePositionAndOrientation(obs_id, physicsClientId=unwrapped.client_id)
-        r, c = unwrapped._world_to_grid(pos[0], pos[1])
-        if 0 <= r < unwrapped.grid_size and 0 <= c < unwrapped.grid_size:
-            grid[r, c] = 1
+        aabb_min, aabb_max = pb.getAABB(obs_id, physicsClientId=unwrapped.client_id)
+        r0, c0 = unwrapped._world_to_grid(aabb_max[0], aabb_min[1])
+        r1, c1 = unwrapped._world_to_grid(aabb_min[0], aabb_max[1])
+        lo_r, hi_r = sorted((r0, r1))
+        lo_c, hi_c = sorted((c0, c1))
+        lo_r = max(0, lo_r)
+        lo_c = max(0, lo_c)
+        hi_r = min(unwrapped.grid_size - 1, hi_r)
+        hi_c = min(unwrapped.grid_size - 1, hi_c)
+        if lo_r <= hi_r and lo_c <= hi_c:
+            grid[lo_r:hi_r+1, lo_c:hi_c+1] = 1
     return grid
 
 def plan_bfs_actions(start_r, start_c, start_h, goal_r, goal_c, obstacle_grid):
@@ -107,7 +107,7 @@ def main():
     print("=========================================================")
     
     # 1. Initialize PyBullet GUI Environment
-    env = gym.make("HiveMind-SingleAgent", render_mode="human", difficulty_level=4)
+    env = gym.make("HiveMind-SingleAgent-v0", render_mode="human", difficulty_level=4)
     obs, info = env.reset()
     unwrapped = env.unwrapped
 
@@ -147,7 +147,6 @@ def main():
             break
 
         obs, reward, term, trunc, info = env.step(act)
-        draw_debug_lidar(env)
         time.sleep(0.05)
 
     # 3. Verify Perception Matrix Channel 1 (Resource Detection)
@@ -156,12 +155,11 @@ def main():
     res_channel_sum = np.sum(obs['grid'][:, :, 1])
     print(f" -> Resource Matrix Channel [1] Detection Count: {res_channel_sum} cell(s)")
     if res_channel_sum > 0:
-        print(" -> VERIFICATION SUCCESS: Resource correctly detected in 15x15x5 local matrix!")
+        print(" -> VERIFICATION SUCCESS: Resource correctly detected in the local observation matrix!")
 
     # Execute Pick Up action (Action 4)
     print("\nExecuting Action [4]: PICK UP RESOURCE...")
     obs, reward, term, trunc, info = env.step(4)
-    draw_debug_lidar(env)
     print(f" -> Carrying Status: {'CARRIED' if obs['is_carrying'] else 'FAILED TO PICKUP'}")
     time.sleep(0.5)
 
@@ -174,11 +172,19 @@ def main():
     actions_to_depot = plan_bfs_actions(curr_r, curr_c, curr_h, dep_r, dep_c, obstacle_grid)
     print(f"\n-> Planned {len(actions_to_depot)} navigation actions to reach Depot location.")
 
-    # Execute path to Depot
+    # Execute path to Depot. The env forces action 5 once the robot is within 0.25 m of
+    # the depot, so the episode can terminate part-way through the planned sequence -
+    # stop stepping when it does rather than driving a finished episode.
+    term = False
+    delivered_en_route = False
     for step_i, act in enumerate(actions_to_depot, 1):
         obs, reward, term, trunc, info = env.step(act)
-        draw_debug_lidar(env)
         time.sleep(0.05)
+        if term or trunc:
+            delivered_en_route = term and reward >= 5.0
+            print(f" -> Episode ended during navigation at step {step_i} "
+                  f"(terminated={term}, reward={reward:+.2f})")
+            break
 
     # 5. Arrived at Depot location -> Verify Perception Matrix Channel 2
     print("\n---------------------------------------------------------")
@@ -186,15 +192,19 @@ def main():
     depot_channel_sum = np.sum(obs['grid'][:, :, 2])
     print(f" -> Depot Matrix Channel [2] Detection Count: {depot_channel_sum} cell(s)")
     if depot_channel_sum > 0:
-        print(" -> VERIFICATION SUCCESS: Depot region correctly detected in 15x15x5 local matrix!")
+        print(" -> VERIFICATION SUCCESS: Depot region correctly detected in the local observation matrix!")
     else:
         print(" -> VERIFICATION WARNING: Depot region cell missed.")
 
-    # Execute Drop Off action (Action 5)
-    print("\nExecuting Action [5]: DROP OFF RESOURCE...")
-    obs, reward, term, trunc, info = env.step(5)
-    draw_debug_lidar(env)
-    print(f" -> Task Terminated : {term} (Success Reward: {reward:.2f})")
+    # Execute Drop Off action (Action 5), unless the takeover already delivered it
+    if delivered_en_route:
+        print("\n -> Drop off already triggered by the env takeover on approach.")
+    elif term:
+        print("\n -> Episode already terminated; skipping the explicit drop off.")
+    else:
+        print("\nExecuting Action [5]: DROP OFF RESOURCE...")
+        obs, reward, term, trunc, info = env.step(5)
+        print(f" -> Task Terminated : {term} (Success Reward: {reward:.2f})")
     print(f" -> Carrying Status : {'CARRIED' if obs['is_carrying'] else 'DELIVERED & RELEASED'}")
 
     print("\n=========================================================")

@@ -254,6 +254,10 @@ def run_end_to_end_mechanics_test(render_gui=False, seed=None):
     actions_to_res = path_to_actions(env, path_to_res)
     print(f"  -> Executing Action Sequence ({len(actions_to_res)} steps): {actions_to_res}")
 
+    # The env forces action 4 as soon as the robot comes within 0.25 m of the resource,
+    # so an A* path that routes through a cell adjacent to it will pick up mid-path. That
+    # is expected behaviour, not a failure - stop walking the plan once it happens.
+    picked_up_en_route = False
     for step_num, act in enumerate(actions_to_res):
         obs, reward, term, trunc, info = env.step(act)
         curr_p, _ = pb.getBasePositionAndOrientation(env.robot_id, physicsClientId=env.client_id)
@@ -261,17 +265,26 @@ def run_end_to_end_mechanics_test(render_gui=False, seed=None):
         assert curr_g != res_grid, f"CRITICAL ENTRY ERROR: Robot entered Resource cell {res_grid} at step {step_num}!"
         assert curr_g != dep_grid, f"CRITICAL ENTRY ERROR: Robot entered Depot cell {dep_grid} at step {step_num}!"
         assert not term, "Unexpected collision/termination while navigating!"
+        if obs["is_carrying"] == 1:
+            picked_up_en_route = True
+            print(f"  -> Env takeover triggered pickup at step {step_num} "
+                  f"(requested action {info['requested_action']} -> executed "
+                  f"{info['executed_action']}), reward {reward:+.2f}")
+            break
 
     print(f"  -> Robot arrived at resource adjacent cell: {target_res_adj} (Distance to resource = {np.linalg.norm(np.array(curr_p[:2]) - np.array(res_pos[:2])):.3f}m)")
 
     # --------------------------------------------------------------------------
     # STEP 2: RESOURCE PICKUP (ACTION 4 FROM ADJACENT CELL)
     # --------------------------------------------------------------------------
-    print("\n[3/6] EXECUTING ACTION 4 (PICKUP FROM ADJACENT CELL)...")
-    obs, reward, term, trunc, info = env.step(4)
-    print(f"  -> Pickup Reward         : {reward:+.2f}")
+    if picked_up_en_route:
+        print("\n[3/6] PICKUP ALREADY COMPLETED BY ENV TAKEOVER - skipping explicit action 4.")
+    else:
+        print("\n[3/6] EXECUTING ACTION 4 (PICKUP FROM ADJACENT CELL)...")
+        obs, reward, term, trunc, info = env.step(4)
+        print(f"  -> Pickup Reward         : {reward:+.2f}")
     print(f"  -> is_carrying Status    : {obs['is_carrying']} (Expected: 1)")
-    print(f"  -> Arm Cardinal Angle    : {math.degrees(env.current_arm_yaw):.1f}°")
+    print(f"  -> Arm Cardinal Angle    : {math.degrees(env.current_arm_yaw):.1f}deg")
     print(f"  -> Claw Finger Clamped   : {env.current_finger_pos:.3f}m")
     print(f"  -> Lidar Mast Elevation  : {env.current_lidar_height:.3f}m")
 
@@ -289,37 +302,57 @@ def run_end_to_end_mechanics_test(render_gui=False, seed=None):
         if 0 <= ar < env.grid_size and 0 <= ac < env.grid_size and grid_map[ar, ac] == 0:
             adj_dep_cells.append((ar, ac))
 
+    # Plan from where the robot actually is. If the takeover fired mid-path it stopped
+    # short of target_res_adj, and planning from a cell it never reached would produce a
+    # sequence that walks it through walls.
+    curr_p, _ = pb.getBasePositionAndOrientation(env.robot_id, physicsClientId=env.client_id)
+    depot_start = env._world_to_grid(curr_p[0], curr_p[1])
+    print(f"  -> Planning from the robot's actual cell: {depot_start}")
+
     path_to_depot = None
     target_dep_adj = None
     for adj in adj_dep_cells:
-        path = astar_grid_path(grid_map, target_res_adj, adj, forbidden_cells=forbidden)
+        path = astar_grid_path(grid_map, depot_start, adj, forbidden_cells=forbidden)
         if path:
             path_to_depot = path
             target_dep_adj = adj
             break
 
-    assert path_to_depot is not None, f"Failed to find A* path from {target_res_adj} to depot adjacent cells!"
+    assert path_to_depot is not None, f"Failed to find A* path from {depot_start} to depot adjacent cells!"
     print(f"  -> A* Path to Depot Adjacent Cell Found ({len(path_to_depot)} cells): {path_to_depot}")
     assert dep_grid not in path_to_depot, "CRITICAL ERROR: A* path illegally entered Depot cell!"
 
     actions_to_depot = path_to_actions(env, path_to_depot)
     print(f"  -> Executing Action Sequence to Depot ({len(actions_to_depot)} steps): {actions_to_depot}")
 
+    # Same takeover caveat as the resource leg: coming within 0.25 m of the depot forces
+    # action 5, which delivers and terminates the episode mid-plan.
+    dropped_en_route = False
     for step_num, act in enumerate(actions_to_depot):
         obs, reward, term, trunc, info = env.step(act)
         curr_p, _ = pb.getBasePositionAndOrientation(env.robot_id, physicsClientId=env.client_id)
         curr_g = env._world_to_grid(curr_p[0], curr_p[1])
         assert curr_g != dep_grid, f"CRITICAL ENTRY ERROR: Robot entered Depot cell {dep_grid} at step {step_num}!"
+        if term and obs["is_carrying"] == 0:
+            dropped_en_route = True
+            print(f"  -> Env takeover triggered dropoff at step {step_num} "
+                  f"(requested action {info['requested_action']} -> executed "
+                  f"{info['executed_action']}), reward {reward:+.2f}")
+            break
         assert not term, "Unexpected collision/termination while navigating to depot!"
         assert obs["is_carrying"] == 1, "Lost resource while carrying!"
 
-    print(f"  -> Robot arrived at depot adjacent cell: {target_dep_adj} (Distance to depot = {np.linalg.norm(np.array(curr_p[:2]) - np.array(dep_pos[:2])):.3f}m)")
+    print(f"  -> Robot finished the depot leg toward adjacent cell {target_dep_adj} "
+          f"(Distance to depot = {np.linalg.norm(np.array(curr_p[:2]) - np.array(dep_pos[:2])):.3f}m)")
 
     # --------------------------------------------------------------------------
     # STEP 4: DEPOT DROPOFF (ACTION 5 FROM ADJACENT CELL INTO DEPOT)
     # --------------------------------------------------------------------------
-    print("\n[5/6] EXECUTING ACTION 5 (DROP OFF INTO DEPOT FROM ADJACENT CELL)...")
-    obs, reward, term, trunc, info = env.step(5)
+    if dropped_en_route:
+        print("\n[5/6] DROP OFF ALREADY COMPLETED BY ENV TAKEOVER - skipping explicit action 5.")
+    else:
+        print("\n[5/6] EXECUTING ACTION 5 (DROP OFF INTO DEPOT FROM ADJACENT CELL)...")
+        obs, reward, term, trunc, info = env.step(5)
     print(f"  -> Dropoff Reward        : {reward:+.2f}")
     print(f"  -> is_carrying Status    : {obs['is_carrying']} (Expected: 0)")
     print(f"  -> Claw Finger Released  : {env.current_finger_pos:.3f}m")

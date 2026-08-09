@@ -7,24 +7,28 @@ import sys
 import numpy as np
 import time
 
-from hivemind_env.env import HiveMindSingleAgentEnv
-from hivemind_env.models import CustomCombinedExtractor
-from stable_baselines3 import PPO
+from hivemind_env.env import OBS_SIZE_V1, HiveMindSingleAgentEnv
+from hivemind_env.models import CustomCombinedExtractor  # noqa: F401  (SB3 unpickles it by name)
+from hivemind_env.training import load_policy
 
-def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
+def run_evaluation(model, difficulty, num_episodes=10, render=False):
     """Run the PPO model for N episodes at a given difficulty and collect metrics."""
     print(f"\n{'='*60}")
     print(f"  Testing at Difficulty Level {difficulty} ({num_episodes} episodes)")
     print(f"{'='*60}")
-    
+
     render_mode = "human" if render else None
-    env = HiveMindSingleAgentEnv(render_mode=render_mode, difficulty_level=difficulty, obs_size=15)
-    
-    model = PPO.load(model_path, device="cpu")
-    
+    env = HiveMindSingleAgentEnv(
+        render_mode=render_mode, difficulty_level=difficulty, obs_size=OBS_SIZE_V1
+    )
+
     results = []
+    # The env forces action 4/5 whenever the robot is within 0.25 m of its target, so the
+    # executed action is not always what the policy asked for. Track both.
     action_counts = np.zeros(7, dtype=int)
-    
+    executed_counts = np.zeros(7, dtype=int)
+    overrides = 0
+
     for ep in range(num_episodes):
         obs, info = env.reset()
         done = False
@@ -42,7 +46,9 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
             steps += 1
             ep_actions.append(int(action))
             action_counts[int(action)] += 1
-            
+            executed_counts[info["executed_action"]] += 1
+            overrides += int(info["action_overridden"])
+
             if reward >= 1.5:
                 picked_up = True
             if reward >= 9.0:
@@ -97,14 +103,22 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
     print(f"  Avg Reward   : {np.mean(rewards):.2f} +/- {np.std(rewards):.2f}")
     print(f"  Avg Steps    : {np.mean(steps_list):.0f}")
     print(f"  Reward Range : [{min(rewards):.2f}, {max(rewards):.2f}]")
-    print(f"\n  Action Distribution:")
+    print(f"\n  Action Distribution (as chosen by the policy):")
     for i, name in enumerate(action_names):
         pct = 100 * action_counts[i] / total_actions if total_actions > 0 else 0
         bar = "#" * int(pct / 2)
         print(f"    {name:<10}: {action_counts[i]:5d} ({pct:5.1f}%) {bar}")
-    
+
+    print(f"\n  Action Distribution (as executed, after pickup/drop takeover):")
+    for i, name in enumerate(action_names):
+        pct = 100 * executed_counts[i] / total_actions if total_actions > 0 else 0
+        print(f"    {name:<10}: {executed_counts[i]:5d} ({pct:5.1f}%)")
+    ovr_pct = 100 * overrides / total_actions if total_actions > 0 else 0
+    print(f"  Env overrode the policy on {overrides}/{total_actions} steps ({ovr_pct:.1f}%)")
+
     return {
         "difficulty": difficulty,
+        "override_rate": overrides / total_actions if total_actions > 0 else 0.0,
         "success_rate": successes / num_episodes,
         "collision_rate": collisions / num_episodes,
         "timeout_rate": timeouts / num_episodes,
@@ -117,10 +131,10 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
 
 def main():
     # Try all known PPO model paths in priority order
+    # The 8M checkpoint and the old 5M test model were removed as superseded artifacts;
+    # this is the only PPO model in the repo.
     candidates = [
         "models/ppo_hivemind_v1_final.zip",          # ← v1 final (10M steps)
-        "models/checkpoints_ppo_v1/ppo_v1_8000000_steps.zip",  # ← 8M checkpoint fallback
-        "models/ppo_hivemind_test.zip",               # ← old test model
     ]
     
     model_path = None
@@ -140,11 +154,14 @@ def main():
     print("=" * 60)
     print(f"  Model: {model_path}")
     print(f"  Model Size: {os.path.getsize(model_path) / 1024 / 1024:.1f} MB")
-    
+
+    # Load once rather than deserialising the same 2.6 MB archive per difficulty level.
+    model, _ = load_policy(model_path, device="cpu")
+
     all_results = {}
     for level in [1, 2, 3, 4]:
-        all_results[level] = run_evaluation(model_path, difficulty=level, num_episodes=10, render=False)
-    
+        all_results[level] = run_evaluation(model, difficulty=level, num_episodes=10, render=False)
+
     print(f"\n{'='*60}")
     print(f"  CROSS-LEVEL SUMMARY (Standard PPO)")
     print(f"{'='*60}")

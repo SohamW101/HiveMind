@@ -1,112 +1,99 @@
-"""Quick smoke test - runs in-process, writes output to file for inspection."""
-import sys
-import os
+"""
+Quick smoke test - runs in-process, writes output to file for inspection.
 
-sys.path.insert(0, r'd:\Dev Projects\Hivemind\Single-Agent-implementation')
-os.chdir(r'd:\Dev Projects\Hivemind\Single-Agent-implementation')
+Checks that the package imports, a device is selectable, and the env can reset and step.
+It used to hardcode an absolute path from another machine ("d:\\Dev Projects\\...") and
+os.chdir into it, so it raised FileNotFoundError on line 6 before doing anything. It also
+grepped train.py for literal strings, which tested the text of a file rather than any
+behaviour and reported a FAIL for a stale token that had been correctly removed.
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+OUT_PATH = ROOT / "smoke_test_results.txt"
 
 results = []
 
-# ── Imports ──────────────────────────────────────────────────────────────────
+# -- Imports ------------------------------------------------------------------
 try:
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
     from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
-    from hivemind_env.env import HiveMindSingleAgentEnv
+    from hivemind_env.env import OBS_SIZE_V1, HiveMindSingleAgentEnv
     from hivemind_env.models import CustomCombinedExtractor
+    from hivemind_env.training import CurriculumCallback, get_device, linear_schedule
     results.append("PASS: All imports successful")
 except Exception as e:
     results.append(f"FAIL: Import error: {e}")
+    OUT_PATH.write_text("\n".join(results), encoding="utf-8")
+    print("\n".join(results))
+    sys.exit(1)
 
-# ── Device check ─────────────────────────────────────────────────────────────
+# -- Device check --------------------------------------------------------------
 try:
-    if torch.cuda.is_available():
-        cap = torch.cuda.get_device_capability()
-        name = torch.cuda.get_device_name(0)
-        device = "cuda" if cap[0] >= 7 else "cpu"
-        results.append(f"PASS: GPU={name} sm_{cap[0]}{cap[1]} -> device={device}")
-    else:
-        device = "cpu"
-        results.append("PASS: No GPU detected -> device=cpu")
+    device = get_device()
+    results.append(f"PASS: device={device}")
 except Exception as e:
     results.append(f"FAIL: Device check: {e}")
 
-# ── Environment ───────────────────────────────────────────────────────────────
+# -- Environment ---------------------------------------------------------------
+env = None
 try:
-    env = HiveMindSingleAgentEnv(render_mode=None, difficulty_level=1)
-    obs, info = env.reset()
+    env = HiveMindSingleAgentEnv(render_mode=None, difficulty_level=1, obs_size=OBS_SIZE_V1)
+    obs, info = env.reset(seed=0)
     grid_shape = obs["grid"].shape
-    is_carrying = obs["is_carrying"]
-    results.append(f"PASS: env.reset() OK. grid={grid_shape}, is_carrying={is_carrying}")
+    results.append(f"PASS: env.reset() OK. grid={grid_shape}, is_carrying={obs['is_carrying']}")
+    if grid_shape != (OBS_SIZE_V1, OBS_SIZE_V1, 5):
+        results.append(f"FAIL: expected grid ({OBS_SIZE_V1}, {OBS_SIZE_V1}, 5), got {grid_shape}")
+    if len(info["lidar_distances"]) != env.lidar_num_rays:
+        results.append(f"FAIL: expected {env.lidar_num_rays} lidar rays, "
+                       f"got {len(info['lidar_distances'])}")
+    else:
+        results.append(f"PASS: info exposes {env.lidar_num_rays} lidar distances")
 except Exception as e:
     results.append(f"FAIL: env.reset(): {e}")
-    env = None
 
-# ── Steps ─────────────────────────────────────────────────────────────────────
+# -- Steps ---------------------------------------------------------------------
 if env is not None:
     try:
-        import numpy as np
         rewards = []
         for i in range(5):
             action = env.action_space.sample()
             obs, reward, term, trunc, info = env.step(int(action))
             rewards.append(reward)
-            results.append(f"  Step {i+1}: action={action} reward={reward:.4f} term={term} trunc={trunc}")
-        env.close()
-        results.append(f"PASS: 5 steps OK. Rewards: {[round(r,4) for r in rewards]}")
+            results.append(
+                f"  Step {i+1}: requested={info['requested_action']} "
+                f"executed={info['executed_action']} reward={reward:.4f} "
+                f"term={term} trunc={trunc}"
+            )
+            if term or trunc:
+                obs, info = env.reset()
+        results.append(f"PASS: 5 steps OK. Rewards: {[round(r, 4) for r in rewards]}")
     except Exception as e:
         results.append(f"FAIL: env.step(): {e}")
-        try:
-            env.close()
-        except:
-            pass
+    finally:
+        env.close()
+        env.close()  # idempotent - close() is guarded against double disconnect
+        results.append("PASS: env.close() is idempotent")
 
-# ── PBRS scale check - verify env.py change ──────────────────────────────────
+# -- Feature extractor wiring ---------------------------------------------------
 try:
-    with open(r"hivemind_env\env.py", "r") as f:
-        src = f.read()
-    if "* 5.0" in src and "* 1.0" not in src.split("PBRS")[1].split("terminated")[0]:
-        results.append("PASS: PBRS scale = 5.0 confirmed in env.py")
-    else:
-        results.append("WARN: Check PBRS scale in env.py manually")
-    if "APF Repulsive Force removed" in src:
-        results.append("PASS: APF removal comment confirmed in env.py")
-    else:
-        results.append("WARN: APF may not be removed - check env.py")
+    probe = HiveMindSingleAgentEnv(render_mode=None, difficulty_level=1, obs_size=OBS_SIZE_V1)
+    extractor = CustomCombinedExtractor(probe.observation_space, features_dim=256)
+    results.append(f"PASS: extractor built for {OBS_SIZE_V1}x{OBS_SIZE_V1} "
+                   f"(linear in_features={extractor.linear[0].in_features})")
+    probe.close()
 except Exception as e:
-    results.append(f"WARN: Could not verify env.py: {e}")
+    results.append(f"FAIL: extractor build: {e}")
 
-# ── train.py checks ───────────────────────────────────────────────────────────
-try:
-    with open("train.py", "r") as f:
-        train_src = f.read()
-    checks = {
-        "import torch": "import torch",
-        "VecMonitor": "VecMonitor(env)",
-        "linear_schedule": "def linear_schedule",
-        "LR reset in callback": "self.model.lr_schedule = linear_schedule",
-        "70% threshold": "CURRICULUM_THRESH = 0.70",
-        "10M steps": "10_000_000",
-        "Isolated log dir": "tensorboard_logs_ppo_v1",
-        "Isolated checkpoint dir": "checkpoints_ppo_v1",
-        "v1 final model": "ppo_hivemind_v1_final",
-        "cudnn.benchmark": "cudnn.benchmark = True",
-        "n_steps=2048": "N_STEPS           = 2048",
-        "batch_size=512": "BATCH_SIZE        = 512",
-    }
-    for name, token in checks.items():
-        if token in train_src:
-            results.append(f"PASS: train.py has '{name}'")
-        else:
-            results.append(f"FAIL: train.py MISSING '{name}' (token: {token})")
-except Exception as e:
-    results.append(f"FAIL: Could not read train.py: {e}")
-
-# ── Write results ─────────────────────────────────────────────────────────────
-out_path = r"d:\Dev Projects\Hivemind\Single-Agent-implementation\smoke_test_results.txt"
-with open(out_path, "w") as f:
-    f.write("\n".join(results))
-
+# -- Write results --------------------------------------------------------------
+OUT_PATH.write_text("\n".join(results), encoding="utf-8")
 print("\n".join(results))
-print(f"\nResults written to: {out_path}")
+print(f"\nResults written to: {OUT_PATH}")
+
+sys.exit(1 if any(r.startswith("FAIL") for r in results) else 0)

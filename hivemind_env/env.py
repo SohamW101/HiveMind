@@ -3,10 +3,38 @@ from gymnasium import spaces
 import numpy as np
 import pybullet as pb
 import pybullet_data
-import random
+import os
 from collections import deque
 import math
 import time
+
+# Observation window sizes. The v1 policy (models/ppo_hivemind_v1_final.zip and every
+# checkpoint under models/) was trained on a 15x15 grid; v2 widens it to 21x21 to give
+# the agent more context on dense obstacle maps. The two are NOT interchangeable: the
+# CNN flattens to 64*3*3+2=578 at 15 and 64*5*5+2=1602 at 21, so loading a v1 model into
+# a 21x21 env raises a shape error. Always pass obs_size explicitly at the call site.
+OBS_SIZE_V1 = 15
+OBS_SIZE_V2 = 21
+DEFAULT_OBS_SIZE = OBS_SIZE_V2
+
+# LiDAR configuration used for the observation grid and the info dict.
+LIDAR_NUM_RAYS = 180
+LIDAR_MAX_RANGE = 2.0
+
+# Obstacle footprints sampled at difficulty >= 3, as (rows, cols).
+_OBSTACLE_SHAPES = ((1, 1), (1, 2), (2, 1), (2, 2))
+
+
+class PhysicsDisconnectedError(RuntimeError):
+    """
+    The PyBullet server went away mid-episode - almost always because someone closed
+    the GUI window.
+
+    Without this, the failure surfaces as a raw `pybullet.error: Not connected to
+    physics server` from whichever call inside the 30-iteration substep loop happened
+    to run first, which reads like an environment bug rather than "the window was shut".
+    """
+
 
 def _bfs_path_exists(grid, start, goal):
     """Checks if a valid path exists between start and goal on a binary grid."""
@@ -29,7 +57,7 @@ def _bfs_path_exists(grid, start, goal):
 class HiveMindSingleAgentEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, render_mode=None, difficulty_level=1, obs_size=21, show_lidar=None):
+    def __init__(self, render_mode=None, difficulty_level=1, obs_size=DEFAULT_OBS_SIZE, show_lidar=None):
         super().__init__()
         self.render_mode = render_mode
         self.difficulty_level = difficulty_level
@@ -38,6 +66,13 @@ class HiveMindSingleAgentEnv(gym.Env):
         self.is_carrying = False
         self.grid_size = 20
         self.cell_size = 0.2
+        self.lidar_num_rays = LIDAR_NUM_RAYS
+        self.lidar_max_range = LIDAR_MAX_RANGE
+        # Bound on rejection sampling in _generate_valid_map so a pathological obstacle
+        # layout can never hang a SubprocVecEnv worker silently.
+        self.max_map_attempts = 100
+        self._closed = False
+        self._lidar_cache = None
         
         # Actions: 0: Forward, 1: Backward, 2: Turn Left, 3: Turn Right, 4: Pick Up, 5: Drop Off, 6: Stay
         self.action_space = spaces.Discrete(7)
@@ -76,14 +111,15 @@ class HiveMindSingleAgentEnv(gym.Env):
         return r, c
 
     def reset(self, seed=None, options=None):
+        # super().reset() installs self.np_random from `seed`. Map generation draws from
+        # that generator only - seeding the global `random`/`np.random` modules here used
+        # to leak across envs sharing a process (DummyVecEnv) and made runs unreproducible.
         super().reset(seed=seed)
-        if seed is not None:
-            random.seed(seed)
-            np.random.seed(seed)
-            
+
         self.is_carrying = False
         self.current_step = 0
         self.lidar_line_ids = []
+        self._lidar_cache = None
         
         pb.resetSimulation(physicsClientId=self.client_id)
         pb.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
@@ -97,7 +133,6 @@ class HiveMindSingleAgentEnv(gym.Env):
         dx, dy = self._grid_to_world(dep_pos[0], dep_pos[1])
 
         # Robot URDF loading with backward-compatible fallback
-        import os
         urdf_path = os.path.join(os.path.dirname(__file__), "assets", "diff_drive_bot.urdf")
         if os.path.exists(urdf_path):
             self.robot_id = pb.loadURDF(urdf_path, basePosition=[rx, ry, 0.005], physicsClientId=self.client_id)
@@ -190,6 +225,8 @@ class HiveMindSingleAgentEnv(gym.Env):
         for _ in range(10):
             pb.stepSimulation(physicsClientId=self.client_id)
 
+        # One scan serves both the observation grid and the info dict.
+        self._lidar_cache = None
         return self._get_obs(), self._get_info()
 
     def _set_arm_and_lidar_joints(self, arm_yaw, finger_pos, lidar_height):
@@ -218,28 +255,43 @@ class HiveMindSingleAgentEnv(gym.Env):
             cardinal_angle = math.pi
         return cardinal_angle
 
+    def _sample_free_positions(self):
+        """Samples distinct robot / resource / depot cells away from the arena walls."""
+        rng = self.np_random
+
+        def cell():
+            return (int(rng.integers(2, 18)), int(rng.integers(2, 18)))
+
+        r_pos, res_pos, dep_pos = cell(), cell(), cell()
+        # Bounded rather than `while True`: 16x16 cells make a triple collision rare, but
+        # an unbounded retry here would hang a worker with no diagnostic.
+        for _ in range(self.max_map_attempts):
+            if r_pos != res_pos and r_pos != dep_pos and res_pos != dep_pos:
+                break
+            res_pos, dep_pos = cell(), cell()
+        return r_pos, res_pos, dep_pos
+
     def _generate_valid_map(self):
-        while True:
+        rng = self.np_random
+
+        for _ in range(self.max_map_attempts):
             grid = np.zeros((self.grid_size, self.grid_size), dtype=np.int32)
-            
+
             if self.difficulty_level == 1:
                 r_pos, res_pos, dep_pos = (10, 10), (15, 15), (5, 5)
                 num_obstacles = 0
             else:
-                r_pos = (random.randint(2, 17), random.randint(2, 17))
-                res_pos = (random.randint(2, 17), random.randint(2, 17))
-                dep_pos = (random.randint(2, 17), random.randint(2, 17))
-                while r_pos == res_pos or r_pos == dep_pos or res_pos == dep_pos:
-                    res_pos = (random.randint(2, 17), random.randint(2, 17))
-                    dep_pos = (random.randint(2, 17), random.randint(2, 17))
-                num_obstacles = 0 if self.difficulty_level == 2 else random.randint(3, 8)
-                
+                r_pos, res_pos, dep_pos = self._sample_free_positions()
+                # NOTE: levels 3 and 4 are deliberately identical for now - see the
+                # audit report. Any reported L3-vs-L4 gap is sampling noise.
+                num_obstacles = 0 if self.difficulty_level == 2 else int(rng.integers(3, 9))
+
             obstacles = []
             for _ in range(num_obstacles):
-                size_r, size_c = random.choice([(1, 1), (1, 2), (2, 1), (2, 2)])
-                obs_r = random.randint(0, self.grid_size - size_r)
-                obs_c = random.randint(0, self.grid_size - size_c)
-                
+                size_r, size_c = _OBSTACLE_SHAPES[int(rng.integers(0, len(_OBSTACLE_SHAPES)))]
+                obs_r = int(rng.integers(0, self.grid_size - size_r + 1))
+                obs_c = int(rng.integers(0, self.grid_size - size_c + 1))
+
                 overlap = False
                 for pos in [r_pos, res_pos, dep_pos]:
                     if obs_r <= pos[0] < obs_r + size_r and obs_c <= pos[1] < obs_c + size_c:
@@ -248,9 +300,16 @@ class HiveMindSingleAgentEnv(gym.Env):
                 if not overlap:
                     grid[obs_r:obs_r+size_r, obs_c:obs_c+size_c] = 1
                     obstacles.append((obs_r, obs_c, size_r, size_c))
-                    
+
             if _bfs_path_exists(grid, r_pos, res_pos) and _bfs_path_exists(grid, res_pos, dep_pos):
                 return r_pos, res_pos, dep_pos, obstacles
+
+        # Fell through the retry budget. An empty arena is always BFS-passable, so this
+        # degrades difficulty for one episode instead of hanging the process.
+        if self.difficulty_level == 1:
+            return (10, 10), (15, 15), (5, 5), []
+        r_pos, res_pos, dep_pos = self._sample_free_positions()
+        return r_pos, res_pos, dep_pos, []
 
     def _step_substep(self, left_wheel_delta=0.0, right_wheel_delta=0.0):
         if getattr(self, "has_urdf_wheels", False):
@@ -272,11 +331,25 @@ class HiveMindSingleAgentEnv(gym.Env):
         if self.render_mode == "human":
             time.sleep(0.015)  # 60 FPS smooth GUI visual delay per physics sub-step
 
+    def _assert_connected(self):
+        """One cheap check per step, rather than per physics call."""
+        if self._closed or not pb.isConnected(physicsClientId=self.client_id):
+            raise PhysicsDisconnectedError(
+                "The PyBullet physics server is no longer connected - the GUI window "
+                "was most likely closed. Re-run the script to start a fresh session."
+            )
+
     def step(self, action):
+        self._assert_connected()
         self.current_step += 1
         reward = -0.01  # Time penalty
         terminated = False
         truncated = self.current_step >= self.max_steps
+
+        # The pickup/dropoff takeover below can rewrite `action`. Keep the policy's own
+        # choice so evaluation scripts can report what the agent actually decided rather
+        # than what the environment forced.
+        requested_action = int(action)
         
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         rx, ry, rz = robot_pos
@@ -497,11 +570,31 @@ class HiveMindSingleAgentEnv(gym.Env):
         # a clean, unambiguous wall-avoidance signal. The APF was redundant and caused
         # the agent to avoid navigating near walls even when no collision was imminent.
 
+        # Physics for this step is settled; one scan now serves both obs and info.
+        self._lidar_cache = None
         obs = self._get_obs()
         info = self._get_info()
+        info["requested_action"] = requested_action
+        info["executed_action"] = int(action)
+        info["action_overridden"] = requested_action != int(action)
         return obs, reward, terminated, truncated, info
 
-    def _get_lidar_scan(self, num_rays=180, max_range=2.0):
+    def _cached_lidar_scan(self):
+        """
+        The scan used by both _get_obs() and _get_info(). Both run at the same settled
+        physics state, so a single sweep is sufficient - this used to fire 2 x 180
+        raycasts (and redraw the GUI rays twice) on every step.
+
+        The cache is cleared immediately before each obs/info pair is built (end of
+        step(), end of reset()), so it never spans a physics update.
+        """
+        if self._lidar_cache is None:
+            self._lidar_cache = self._get_lidar_scan(
+                num_rays=self.lidar_num_rays, max_range=self.lidar_max_range
+            )
+        return self._lidar_cache
+
+    def _get_lidar_scan(self, num_rays=LIDAR_NUM_RAYS, max_range=LIDAR_MAX_RANGE):
         """Simulate 360-degree 2D LiDAR using PyBullet rayTestBatch."""
         robot_pos, robot_orn = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         rx, ry, rz = robot_pos
@@ -604,7 +697,7 @@ class HiveMindSingleAgentEnv(gym.Env):
         half_obs = self.obs_size // 2
 
         # Get LiDAR hits for obstacles / walls
-        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
+        lidar_results, _, _ = self._cached_lidar_scan()
         for hit in lidar_results:
             hit_uid, _, hit_frac, hit_pos, _ = hit
             if hit_uid >= 0 and hit_frac < 1.0:
@@ -662,8 +755,8 @@ class HiveMindSingleAgentEnv(gym.Env):
             robot_pos, _ = pb.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client_id)
         else:
             robot_pos = (0.0, 0.0, 0.0)
-        lidar_results, _, _ = self._get_lidar_scan(num_rays=180, max_range=2.0)
-        hit_distances = [hit[2] * 2.0 for hit in lidar_results]
+        lidar_results, _, _ = self._cached_lidar_scan()
+        hit_distances = [hit[2] * self.lidar_max_range for hit in lidar_results]
         return {
             "difficulty": self.difficulty_level,
             "robot_pos": robot_pos,
@@ -674,5 +767,9 @@ class HiveMindSingleAgentEnv(gym.Env):
         pass
 
     def close(self):
-        if hasattr(self, 'client_id'):
-            pb.disconnect(physicsClientId=self.client_id)
+        # pb.disconnect() raises on an already-disconnected client, which turned a
+        # double close() (common in test teardown) into a spurious error.
+        if self._closed or not hasattr(self, "client_id"):
+            return
+        self._closed = True
+        pb.disconnect(physicsClientId=self.client_id)

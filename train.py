@@ -1,134 +1,33 @@
-import gymnasium as gym
-import torch
+"""
+PPO v1 training run: 15x15 observation window, 256-dim extractor, 10M steps.
+
+This is the configuration that produced models/ppo_hivemind_v1_final.zip. The shared
+scaffolding (schedule, curriculum callback, env factory, device probe) lives in
+hivemind_env/training.py so v1 and v2 cannot drift apart again.
+"""
 import os
-import sys
-import numpy as np
-from collections import deque
-from typing import Callable
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 
-from hivemind_env.env import HiveMindSingleAgentEnv
+from hivemind_env.env import OBS_SIZE_V1
 from hivemind_env.models import CustomCombinedExtractor
+from hivemind_env.training import (
+    CurriculumCallback,
+    get_device,
+    linear_schedule,
+    make_env,
+    num_parallel_envs,
+)
+from stable_baselines3.common.callbacks import CheckpointCallback
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Learning Rate Schedule
-# ─────────────────────────────────────────────────────────────────────────────
-def linear_schedule(initial_value: float) -> Callable[[float], float]:
-    """
-    Linear learning rate decay from initial_value → 0.0 over the entire training run.
-    progress_remaining goes from 1.0 (start) to 0.0 (end).
-    """
-    def func(progress_remaining: float) -> float:
-        return progress_remaining * initial_value
-    return func
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Curriculum Callback
-# ─────────────────────────────────────────────────────────────────────────────
-class CurriculumCallback(BaseCallback):
-    """
-    Upgrades environment difficulty when the rolling success rate
-    exceeds `target_success_rate` over the last `window_size` completed episodes.
-
-    Also:
-    - Logs `curriculum/difficulty_level` to TensorBoard at every check so you
-      can see the exact timestep each difficulty transition happened.
-    - Resets the learning rate to `initial_lr` whenever the difficulty increases,
-      giving the agent a fresh learning burst to adapt to the new environment.
-    """
-    def __init__(
-        self,
-        initial_lr: float,
-        check_freq: int = 1000,
-        target_success_rate: float = 0.70,
-        window_size: int = 100,
-        verbose: int = 1,
-    ):
-        super().__init__(verbose)
-        self.initial_lr = initial_lr
-        self.check_freq = check_freq
-        self.target_success_rate = target_success_rate
-        self.window_size = window_size
-        self.delivery_history = deque(maxlen=window_size)
-
-    def _on_step(self) -> bool:
-        # Record outcome for every environment that finished this step
-        for done, reward in zip(self.locals["dones"], self.locals["rewards"]):
-            if done:
-                # Successful delivery: dropoff gives +10 minus small penalties → net > 5.0
-                self.delivery_history.append(1 if reward >= 5.0 else 0)
-
-        # Check curriculum condition every `check_freq` steps
-        if self.n_calls % self.check_freq == 0:
-            current_level = self.training_env.get_attr("difficulty_level")[0]
-
-            # Always log current difficulty so TensorBoard shows the exact transition step
-            self.logger.record("curriculum/difficulty_level", current_level)
-
-            if len(self.delivery_history) == self.window_size:
-                success_rate = sum(self.delivery_history) / self.window_size
-                self.logger.record("curriculum/success_rate", success_rate)
-
-                if success_rate >= self.target_success_rate and current_level < 4:
-                    new_level = current_level + 1
-                    print(
-                        f"\n[Curriculum] Step {self.num_timesteps:,} | "
-                        f"Success rate {success_rate*100:.1f}% >= {self.target_success_rate*100:.0f}% | "
-                        f"Upgrading difficulty: Level {current_level} → Level {new_level}\n"
-                    )
-                    self.training_env.set_attr("difficulty_level", new_level)
-                    self.delivery_history.clear()
-
-                    # Reset learning rate to initial value so the agent adapts quickly
-                    # to the new environment configuration
-                    self.model.lr_schedule = linear_schedule(self.initial_lr)
-                    print(f"[Curriculum] Learning rate reset to {self.initial_lr:.0e}")
-
-        return True
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Environment Factory
-# ─────────────────────────────────────────────────────────────────────────────
-def make_env(difficulty_level: int = 1):
-    def _init():
-        return HiveMindSingleAgentEnv(render_mode=None, difficulty_level=difficulty_level)
-    return _init
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Device Detection (safe for local GTX 1050 sm_61 AND server A5000 sm_86)
-# ─────────────────────────────────────────────────────────────────────────────
-def get_device() -> str:
-    if torch.cuda.is_available():
-        cap = torch.cuda.get_device_capability()
-        name = torch.cuda.get_device_name(0)
-        if cap[0] >= 7:
-            print(f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) → Using CUDA (cuDNN disabled for stability)")
-            torch.backends.cudnn.enabled = False
-            return "cuda"
-        else:
-            print(
-                f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) is below sm_70. "
-                f"PyTorch 2.x requires sm_70+. Falling back to CPU."
-            )
-            return "cpu"
-    print("[Device] No CUDA GPU detected → Using CPU")
-    return "cpu"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Main Training Entry Point
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
 
-    # ── Hyperparameters ──────────────────────────────────────────────────────
+    # -- Hyperparameters ------------------------------------------------------
     TOTAL_TIMESTEPS   = 10_000_000
+    OBS_SIZE          = OBS_SIZE_V1   # 15x15 - must match the model you intend to reuse
+    FEATURES_DIM      = 256
     INITIAL_LR        = 3e-4          # Decays linearly to 0.0 over training
     N_STEPS           = 2048          # Steps collected per env per update
     BATCH_SIZE        = 512           # Minibatch size for gradient updates
@@ -145,24 +44,19 @@ if __name__ == "__main__":
     CHECKPOINT_DIR    = "./models/checkpoints_ppo_v1/"
     FINAL_MODEL_PATH  = "./models/ppo_hivemind_v1_final"
 
-    # ── CPU count ────────────────────────────────────────────────────────────
-    num_cpu = min(16, os.cpu_count() or 4)
-    print(f"[Config] Spawning {num_cpu} parallel environments.")
+    num_cpu = num_parallel_envs()
+    print(f"[Config] Spawning {num_cpu} parallel environments at obs_size={OBS_SIZE}.")
 
-    # ── Build and wrap environment ───────────────────────────────────────────
-    env = SubprocVecEnv([make_env(difficulty_level=1) for _ in range(num_cpu)])
+    env = SubprocVecEnv([make_env(1, OBS_SIZE) for _ in range(num_cpu)])
     env = VecMonitor(env)  # Required for rollout/ep_rew_mean and rollout/ep_len_mean
 
-    # ── Device ───────────────────────────────────────────────────────────────
     device = get_device()
 
-    # ── Feature extractor ────────────────────────────────────────────────────
     policy_kwargs = dict(
         features_extractor_class=CustomCombinedExtractor,
-        features_extractor_kwargs=dict(features_dim=256),
+        features_extractor_kwargs=dict(features_dim=FEATURES_DIM),
     )
 
-    # ── PPO Model ────────────────────────────────────────────────────────────
     print("[Config] Initializing PPO with Standard Feed-Forward policy...")
     model = PPO(
         "MultiInputPolicy",
@@ -181,7 +75,6 @@ if __name__ == "__main__":
         device=device,
     )
 
-    # ── Callbacks ────────────────────────────────────────────────────────────
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     os.makedirs("models", exist_ok=True)
 
@@ -198,9 +91,9 @@ if __name__ == "__main__":
         name_prefix="ppo_v1",
     )
 
-    # ── Training ─────────────────────────────────────────────────────────────
     print(
-        f"\n[Training] Starting 10,000,000 step run.\n"
+        f"\n[Training] Starting {TOTAL_TIMESTEPS:,} step run.\n"
+        f"  Obs size: {OBS_SIZE}x{OBS_SIZE}x5\n"
         f"  Logs    : {LOG_DIR}\n"
         f"  Checkpts: {CHECKPOINT_DIR}\n"
         f"  Final   : {FINAL_MODEL_PATH}.zip\n"
@@ -208,7 +101,7 @@ if __name__ == "__main__":
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         callback=[curriculum_callback, checkpoint_callback],
-        tb_log_name="PPO_v1",       # TensorBoard run folder = tensorboard_logs_ppo_v1/PPO_v1_1/
+        tb_log_name="PPO_v1",       # -> tensorboard_logs_ppo_v1/PPO_v1_1/
         reset_num_timesteps=True,
     )
 

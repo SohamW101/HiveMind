@@ -8,8 +8,9 @@ import numpy as np
 import time
 
 # Must import these BEFORE loading the model so SB3 can find the custom extractor
-from hivemind_env.env import HiveMindSingleAgentEnv
-from hivemind_env.models import CustomCombinedExtractor
+from hivemind_env.env import OBS_SIZE_V1, HiveMindSingleAgentEnv
+from hivemind_env.models import CustomCombinedExtractor  # noqa: F401  (SB3 unpickles it by name)
+from hivemind_env.training import load_policy
 
 try:
     from sb3_contrib import RecurrentPPO
@@ -17,18 +18,20 @@ except ImportError:
     print("ERROR: sb3_contrib not installed. Run: pip install sb3-contrib")
     sys.exit(1)
 
-def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
+def run_evaluation(model, difficulty, num_episodes=10, render=False):
     """Run the model for N episodes at a given difficulty and collect metrics."""
     print(f"\n{'='*60}")
     print(f"  Testing at Difficulty Level {difficulty} ({num_episodes} episodes)")
     print(f"{'='*60}")
-    
+
+    # obs_size must be 15: every recurrent checkpoint under models/checkpoints/ was
+    # trained on a 15x15 grid, and the extractor's flatten width is baked into the
+    # saved weights. Taking the env default (21) raised a shape error here.
     render_mode = "human" if render else None
-    env = HiveMindSingleAgentEnv(render_mode=render_mode, difficulty_level=difficulty)
-    
-    # Load the RecurrentPPO model
-    model = RecurrentPPO.load(model_path, device="cpu")
-    
+    env = HiveMindSingleAgentEnv(
+        render_mode=render_mode, difficulty_level=difficulty, obs_size=OBS_SIZE_V1
+    )
+
     results = []
     action_counts = np.zeros(7, dtype=int)
     
@@ -96,7 +99,7 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
             "action_dist": ep_action_dist,
         })
         
-        print(f"  Ep {ep+1:02d} | {outcome:<9} | Reward: {total_reward:7.2f} | Steps: {steps:3d} | Pickup: {'✓' if picked_up else '✗'} | Dropoff: {'✓' if dropped_off else '✗'}")
+        print(f"  Ep {ep+1:02d} | {outcome:<9} | Reward: {total_reward:7.2f} | Steps: {steps:3d} | Pickup: {'Y' if picked_up else 'N'} | Dropoff: {'Y' if dropped_off else 'N'}")
     
     env.close()
     
@@ -116,13 +119,13 @@ def run_evaluation(model_path, difficulty, num_episodes=10, render=False):
     print(f"  Collisions   : {collisions}/{num_episodes}")
     print(f"  Timeouts     : {timeouts}/{num_episodes}")
     print(f"  Pickups      : {pickups}/{num_episodes}")
-    print(f"  Avg Reward   : {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+    print(f"  Avg Reward   : {np.mean(rewards):.2f} +/- {np.std(rewards):.2f}")
     print(f"  Avg Steps    : {np.mean(steps_list):.0f}")
     print(f"  Reward Range : [{min(rewards):.2f}, {max(rewards):.2f}]")
     print(f"\n  Action Distribution:")
     for i, name in enumerate(action_names):
         pct = 100 * action_counts[i] / total_actions if total_actions > 0 else 0
-        bar = "█" * int(pct / 2)
+        bar = "#" * int(pct / 2)
         print(f"    {name:<10}: {action_counts[i]:5d} ({pct:5.1f}%) {bar}")
     
     return {
@@ -172,11 +175,14 @@ def main():
     print("=" * 60)
     print(f"  Model: {model_path}")
     print(f"  Model Size: {os.path.getsize(model_path) / 1024 / 1024:.1f} MB")
-    
+
+    # Load once rather than once per difficulty level.
+    model, _ = load_policy(model_path, device="cpu", recurrent=True)
+
     # Test across all difficulty levels
     all_results = {}
     for level in [1, 2, 3, 4]:
-        all_results[level] = run_evaluation(model_path, difficulty=level, num_episodes=10, render=False)
+        all_results[level] = run_evaluation(model, difficulty=level, num_episodes=10, render=False)
     
     # Print final cross-level summary
     print(f"\n{'='*60}")
