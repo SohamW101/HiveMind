@@ -1,6 +1,7 @@
 # Environments
 .env
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -29,3 +30,27 @@ develop-eggs/
 .vscode/
 *.swp
 *.swo
+
+# Office lock files (created while a .pptx/.docx is open)
+~$*
+
+# Generated test output - smoke_test.py rewrites this on every run
+smoke_test_results.txt
+
+# Training artifacts. Intermediate checkpoints and event files are large and
+# reproducible, so anything NEW written into these directories stays out of the repo.
+#
+# A handful of files inside them are already tracked and stay that way - git ignore
+# rules never untrack anything. Those are deliberate: the PPO_v1_5 run behind every
+# training figure, the PPO_5/PPO_6 and RecurrentPPO_1-3 runs behind the appendix, and
+# one RecurrentPPO checkpoint kept as the failed-LSTM baseline.
+#
+# Do NOT try to re-include them with `!` patterns - git cannot re-include a path whose
+# parent directory is excluded, so those lines would look meaningful and do nothing.
+models/checkpoints/
+models/checkpoints_ppo_v1/
+models/checkpoints_ppo_v2/
+tensorboard_logs/
+tensorboard_logs_ppo_v1/
+tensorboard_logs_ppo_v2/
+runs/
