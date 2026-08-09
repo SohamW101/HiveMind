@@ -1,5 +1,27 @@
 # PPO v1_5 — Complete Demo Run Analysis (All 4 Difficulty Levels)
 
+> ## ⚠️ SUPERSEDED — historical record only
+>
+> **Current numbers live in [`12_Evaluation_Current.md`](12_Evaluation_Current.md).**
+>
+> This document measured the environment as it stood on 2026-08-07, **before** the
+> pickup/drop takeover landed in commit `5b8c84b` ("fixed pickup/drop mechanics"). That
+> change forces action 4/5 once the robot is within 0.25 m of its target, which halved
+> episode length and all but eliminated collisions.
+>
+> Re-measured on 2026-08-09 over 120 episodes, the same model scores:
+>
+> | | This doc (n=40) | Current (n=120) |
+> |:---|:---|:---|
+> | Overall success | 67.5% | **79.2%** |
+> | L1 / L2 / L3 / L4 | 100 / 70 / 60 / 40% | **100 / 80 / 73 / 63%** |
+> | L1 steps | 64 | **34** |
+> | Collisions | 4/40 (10%) | **0/120 (0%)** |
+>
+> Nothing below was wrong when written — it describes an environment that no longer
+> exists. In particular, **"Issue 1: Collisions at Level 4" no longer reproduces**; every
+> current failure is a timeout, and 84% of those happen *after* a successful pickup.
+
 **Model:** `models/ppo_hivemind_v1_final.zip` (10M steps, 2.6 MB)  
 **Date:** 2026-08-07  
 **Episodes per level:** 10  

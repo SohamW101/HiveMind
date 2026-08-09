@@ -1,0 +1,1130 @@
+{
+  "model": "models/ppo_hivemind_v1_final.zip",
+  "obs_size": 15,
+  "episodes_per_level": 30,
+  "date": "2026-08-09",
+  "overall_success_rate": 0.7917,
+  "total_episodes": 120,
+  "levels": {
+    "1": {
+      "difficulty": 1,
+      "label": "fixed positions, no obstacles",
+      "num_episodes": 30,
+      "success_rate": 1.0,
+      "success_ci95": [
+        0.8865,
+        1.0
+      ],
+      "collision_rate": 0.0,
+      "timeout_rate": 0.0,
+      "pickup_rate": 1.0,
+      "avg_reward": 42.62,
+      "std_reward": 0.0,
+      "min_reward": 42.62,
+      "max_reward": 42.62,
+      "avg_steps": 34.0,
+      "median_steps": 34.0,
+      "override_rate": 0.0588,
+      "requested_actions": {
+        "Forward": 240,
+        "Backward": 600,
+        "Turn Left": 30,
+        "Turn Right": 150,
+        "Pick Up": 0,
+        "Drop Off": 0,
+        "Stay": 0
+      },
+      "executed_actions": {
+        "Forward": 210,
+        "Backward": 600,
+        "Turn Left": 30,
+        "Turn Right": 120,
+        "Pick Up": 30,
+        "Drop Off": 30,
+        "Stay": 0
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "seed": 1000,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 2,
+          "seed": 1001,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 3,
+          "seed": 1002,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 4,
+          "seed": 1003,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 5,
+          "seed": 1004,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 6,
+          "seed": 1005,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 7,
+          "seed": 1006,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 8,
+          "seed": 1007,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 9,
+          "seed": 1008,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 10,
+          "seed": 1009,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 11,
+          "seed": 1010,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 12,
+          "seed": 1011,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 13,
+          "seed": 1012,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 14,
+          "seed": 1013,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 15,
+          "seed": 1014,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 16,
+          "seed": 1015,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 17,
+          "seed": 1016,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 18,
+          "seed": 1017,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 19,
+          "seed": 1018,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 20,
+          "seed": 1019,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 21,
+          "seed": 1020,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 22,
+          "seed": 1021,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 23,
+          "seed": 1022,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 24,
+          "seed": 1023,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 25,
+          "seed": 1024,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 26,
+          "seed": 1025,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 27,
+          "seed": 1026,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 28,
+          "seed": 1027,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 29,
+          "seed": 1028,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 30,
+          "seed": 1029,
+          "outcome": "SUCCESS",
+          "reward": 42.62,
+          "steps": 34,
+          "picked_up": true
+        }
+      ]
+    },
+    "2": {
+      "difficulty": 2,
+      "label": "random spawns, no obstacles",
+      "num_episodes": 30,
+      "success_rate": 0.8,
+      "success_ci95": [
+        0.6269,
+        0.905
+      ],
+      "collision_rate": 0.0,
+      "timeout_rate": 0.2,
+      "pickup_rate": 1.0,
+      "avg_reward": 25.76,
+      "std_reward": 8.55,
+      "min_reward": 4.32,
+      "max_reward": 38.59,
+      "avg_steps": 119.9,
+      "median_steps": 24.5,
+      "override_rate": 0.1481,
+      "requested_actions": {
+        "Forward": 859,
+        "Backward": 673,
+        "Turn Left": 264,
+        "Turn Right": 358,
+        "Pick Up": 0,
+        "Drop Off": 1444,
+        "Stay": 0
+      },
+      "executed_actions": {
+        "Forward": 357,
+        "Backward": 670,
+        "Turn Left": 260,
+        "Turn Right": 334,
+        "Pick Up": 30,
+        "Drop Off": 1947,
+        "Stay": 0
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "seed": 2000,
+          "outcome": "SUCCESS",
+          "reward": 27.98,
+          "steps": 13,
+          "picked_up": true
+        },
+        {
+          "episode": 2,
+          "seed": 2001,
+          "outcome": "SUCCESS",
+          "reward": 23.07,
+          "steps": 17,
+          "picked_up": true
+        },
+        {
+          "episode": 3,
+          "seed": 2002,
+          "outcome": "TIMEOUT",
+          "reward": 26.06,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 4,
+          "seed": 2003,
+          "outcome": "SUCCESS",
+          "reward": 31.86,
+          "steps": 37,
+          "picked_up": true
+        },
+        {
+          "episode": 5,
+          "seed": 2004,
+          "outcome": "SUCCESS",
+          "reward": 36.46,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 6,
+          "seed": 2005,
+          "outcome": "SUCCESS",
+          "reward": 30.54,
+          "steps": 24,
+          "picked_up": true
+        },
+        {
+          "episode": 7,
+          "seed": 2006,
+          "outcome": "SUCCESS",
+          "reward": 38.59,
+          "steps": 44,
+          "picked_up": true
+        },
+        {
+          "episode": 8,
+          "seed": 2007,
+          "outcome": "TIMEOUT",
+          "reward": 9.84,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 9,
+          "seed": 2008,
+          "outcome": "SUCCESS",
+          "reward": 24.95,
+          "steps": 18,
+          "picked_up": true
+        },
+        {
+          "episode": 10,
+          "seed": 2009,
+          "outcome": "SUCCESS",
+          "reward": 34.27,
+          "steps": 30,
+          "picked_up": true
+        },
+        {
+          "episode": 11,
+          "seed": 2010,
+          "outcome": "SUCCESS",
+          "reward": 21.2,
+          "steps": 12,
+          "picked_up": true
+        },
+        {
+          "episode": 12,
+          "seed": 2011,
+          "outcome": "TIMEOUT",
+          "reward": 12.1,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 13,
+          "seed": 2012,
+          "outcome": "TIMEOUT",
+          "reward": 4.32,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 14,
+          "seed": 2013,
+          "outcome": "SUCCESS",
+          "reward": 24.06,
+          "steps": 11,
+          "picked_up": true
+        },
+        {
+          "episode": 15,
+          "seed": 2014,
+          "outcome": "SUCCESS",
+          "reward": 30.76,
+          "steps": 21,
+          "picked_up": true
+        },
+        {
+          "episode": 16,
+          "seed": 2015,
+          "outcome": "SUCCESS",
+          "reward": 32.91,
+          "steps": 25,
+          "picked_up": true
+        },
+        {
+          "episode": 17,
+          "seed": 2016,
+          "outcome": "SUCCESS",
+          "reward": 25.44,
+          "steps": 24,
+          "picked_up": true
+        },
+        {
+          "episode": 18,
+          "seed": 2017,
+          "outcome": "TIMEOUT",
+          "reward": 11.68,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 19,
+          "seed": 2018,
+          "outcome": "SUCCESS",
+          "reward": 36.13,
+          "steps": 35,
+          "picked_up": true
+        },
+        {
+          "episode": 20,
+          "seed": 2019,
+          "outcome": "SUCCESS",
+          "reward": 21.46,
+          "steps": 14,
+          "picked_up": true
+        },
+        {
+          "episode": 21,
+          "seed": 2020,
+          "outcome": "SUCCESS",
+          "reward": 32.03,
+          "steps": 21,
+          "picked_up": true
+        },
+        {
+          "episode": 22,
+          "seed": 2021,
+          "outcome": "SUCCESS",
+          "reward": 27.29,
+          "steps": 19,
+          "picked_up": true
+        },
+        {
+          "episode": 23,
+          "seed": 2022,
+          "outcome": "TIMEOUT",
+          "reward": 16.23,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 24,
+          "seed": 2023,
+          "outcome": "SUCCESS",
+          "reward": 19.05,
+          "steps": 13,
+          "picked_up": true
+        },
+        {
+          "episode": 25,
+          "seed": 2024,
+          "outcome": "SUCCESS",
+          "reward": 22.46,
+          "steps": 14,
+          "picked_up": true
+        },
+        {
+          "episode": 26,
+          "seed": 2025,
+          "outcome": "SUCCESS",
+          "reward": 32.49,
+          "steps": 55,
+          "picked_up": true
+        },
+        {
+          "episode": 27,
+          "seed": 2026,
+          "outcome": "SUCCESS",
+          "reward": 34.68,
+          "steps": 33,
+          "picked_up": true
+        },
+        {
+          "episode": 28,
+          "seed": 2027,
+          "outcome": "SUCCESS",
+          "reward": 27.72,
+          "steps": 24,
+          "picked_up": true
+        },
+        {
+          "episode": 29,
+          "seed": 2028,
+          "outcome": "SUCCESS",
+          "reward": 21.08,
+          "steps": 14,
+          "picked_up": true
+        },
+        {
+          "episode": 30,
+          "seed": 2029,
+          "outcome": "SUCCESS",
+          "reward": 36.15,
+          "steps": 46,
+          "picked_up": true
+        }
+      ]
+    },
+    "3": {
+      "difficulty": 3,
+      "label": "random spawns + obstacles",
+      "num_episodes": 30,
+      "success_rate": 0.7333333333333333,
+      "success_ci95": [
+        0.5555,
+        0.8582
+      ],
+      "collision_rate": 0.0,
+      "timeout_rate": 0.26666666666666666,
+      "pickup_rate": 0.9666666666666667,
+      "avg_reward": 28.41,
+      "std_reward": 12.17,
+      "min_reward": 0.87,
+      "max_reward": 48.04,
+      "avg_steps": 170.7,
+      "median_steps": 46.0,
+      "override_rate": 0.1023,
+      "requested_actions": {
+        "Forward": 891,
+        "Backward": 1133,
+        "Turn Left": 534,
+        "Turn Right": 699,
+        "Pick Up": 0,
+        "Drop Off": 1864,
+        "Stay": 1
+      },
+      "executed_actions": {
+        "Forward": 398,
+        "Backward": 1130,
+        "Turn Left": 526,
+        "Turn Right": 679,
+        "Pick Up": 29,
+        "Drop Off": 2359,
+        "Stay": 1
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "seed": 3000,
+          "outcome": "SUCCESS",
+          "reward": 27.01,
+          "steps": 26,
+          "picked_up": true
+        },
+        {
+          "episode": 2,
+          "seed": 3001,
+          "outcome": "SUCCESS",
+          "reward": 12.38,
+          "steps": 3,
+          "picked_up": true
+        },
+        {
+          "episode": 3,
+          "seed": 3002,
+          "outcome": "TIMEOUT",
+          "reward": 9.22,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 4,
+          "seed": 3003,
+          "outcome": "SUCCESS",
+          "reward": 48.04,
+          "steps": 49,
+          "picked_up": true
+        },
+        {
+          "episode": 5,
+          "seed": 3004,
+          "outcome": "SUCCESS",
+          "reward": 36.44,
+          "steps": 43,
+          "picked_up": true
+        },
+        {
+          "episode": 6,
+          "seed": 3005,
+          "outcome": "TIMEOUT",
+          "reward": 38.57,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 7,
+          "seed": 3006,
+          "outcome": "SUCCESS",
+          "reward": 27.35,
+          "steps": 23,
+          "picked_up": true
+        },
+        {
+          "episode": 8,
+          "seed": 3007,
+          "outcome": "TIMEOUT",
+          "reward": 19.13,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 9,
+          "seed": 3008,
+          "outcome": "SUCCESS",
+          "reward": 47.52,
+          "steps": 57,
+          "picked_up": true
+        },
+        {
+          "episode": 10,
+          "seed": 3009,
+          "outcome": "SUCCESS",
+          "reward": 37.44,
+          "steps": 31,
+          "picked_up": true
+        },
+        {
+          "episode": 11,
+          "seed": 3010,
+          "outcome": "TIMEOUT",
+          "reward": 19.96,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 12,
+          "seed": 3011,
+          "outcome": "SUCCESS",
+          "reward": 27.83,
+          "steps": 20,
+          "picked_up": true
+        },
+        {
+          "episode": 13,
+          "seed": 3012,
+          "outcome": "SUCCESS",
+          "reward": 28.32,
+          "steps": 67,
+          "picked_up": true
+        },
+        {
+          "episode": 14,
+          "seed": 3013,
+          "outcome": "SUCCESS",
+          "reward": 22.98,
+          "steps": 17,
+          "picked_up": true
+        },
+        {
+          "episode": 15,
+          "seed": 3014,
+          "outcome": "SUCCESS",
+          "reward": 38.41,
+          "steps": 41,
+          "picked_up": true
+        },
+        {
+          "episode": 16,
+          "seed": 3015,
+          "outcome": "SUCCESS",
+          "reward": 36.43,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 17,
+          "seed": 3016,
+          "outcome": "SUCCESS",
+          "reward": 17.22,
+          "steps": 10,
+          "picked_up": true
+        },
+        {
+          "episode": 18,
+          "seed": 3017,
+          "outcome": "SUCCESS",
+          "reward": 35.35,
+          "steps": 32,
+          "picked_up": true
+        },
+        {
+          "episode": 19,
+          "seed": 3018,
+          "outcome": "SUCCESS",
+          "reward": 32.15,
+          "steps": 33,
+          "picked_up": true
+        },
+        {
+          "episode": 20,
+          "seed": 3019,
+          "outcome": "SUCCESS",
+          "reward": 22.92,
+          "steps": 16,
+          "picked_up": true
+        },
+        {
+          "episode": 21,
+          "seed": 3020,
+          "outcome": "SUCCESS",
+          "reward": 41.3,
+          "steps": 29,
+          "picked_up": true
+        },
+        {
+          "episode": 22,
+          "seed": 3021,
+          "outcome": "TIMEOUT",
+          "reward": 12.85,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 23,
+          "seed": 3022,
+          "outcome": "TIMEOUT",
+          "reward": 0.87,
+          "steps": 500,
+          "picked_up": false
+        },
+        {
+          "episode": 24,
+          "seed": 3023,
+          "outcome": "SUCCESS",
+          "reward": 24.99,
+          "steps": 20,
+          "picked_up": true
+        },
+        {
+          "episode": 25,
+          "seed": 3024,
+          "outcome": "SUCCESS",
+          "reward": 37.97,
+          "steps": 53,
+          "picked_up": true
+        },
+        {
+          "episode": 26,
+          "seed": 3025,
+          "outcome": "SUCCESS",
+          "reward": 42.36,
+          "steps": 90,
+          "picked_up": true
+        },
+        {
+          "episode": 27,
+          "seed": 3026,
+          "outcome": "TIMEOUT",
+          "reward": 24.31,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 28,
+          "seed": 3027,
+          "outcome": "SUCCESS",
+          "reward": 42.37,
+          "steps": 78,
+          "picked_up": true
+        },
+        {
+          "episode": 29,
+          "seed": 3028,
+          "outcome": "SUCCESS",
+          "reward": 35.16,
+          "steps": 350,
+          "picked_up": true
+        },
+        {
+          "episode": 30,
+          "seed": 3029,
+          "outcome": "TIMEOUT",
+          "reward": 5.49,
+          "steps": 500,
+          "picked_up": true
+        }
+      ]
+    },
+    "4": {
+      "difficulty": 4,
+      "label": "random spawns + obstacles (same generator as L3)",
+      "num_episodes": 30,
+      "success_rate": 0.6333333333333333,
+      "success_ci95": [
+        0.4551,
+        0.7813
+      ],
+      "collision_rate": 0.0,
+      "timeout_rate": 0.36666666666666664,
+      "pickup_rate": 0.9,
+      "avg_reward": 21.52,
+      "std_reward": 9.9,
+      "min_reward": -1.08,
+      "max_reward": 38.65,
+      "avg_steps": 208.0,
+      "median_steps": 30.5,
+      "override_rate": 0.2293,
+      "requested_actions": {
+        "Forward": 2469,
+        "Backward": 1318,
+        "Turn Left": 778,
+        "Turn Right": 1188,
+        "Pick Up": 0,
+        "Drop Off": 488,
+        "Stay": 0
+      },
+      "executed_actions": {
+        "Forward": 1067,
+        "Backward": 1313,
+        "Turn Left": 772,
+        "Turn Right": 1170,
+        "Pick Up": 27,
+        "Drop Off": 1892,
+        "Stay": 0
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "seed": 4000,
+          "outcome": "SUCCESS",
+          "reward": 37.94,
+          "steps": 22,
+          "picked_up": true
+        },
+        {
+          "episode": 2,
+          "seed": 4001,
+          "outcome": "SUCCESS",
+          "reward": 25.16,
+          "steps": 26,
+          "picked_up": true
+        },
+        {
+          "episode": 3,
+          "seed": 4002,
+          "outcome": "TIMEOUT",
+          "reward": -0.55,
+          "steps": 500,
+          "picked_up": false
+        },
+        {
+          "episode": 4,
+          "seed": 4003,
+          "outcome": "SUCCESS",
+          "reward": 28.92,
+          "steps": 43,
+          "picked_up": true
+        },
+        {
+          "episode": 5,
+          "seed": 4004,
+          "outcome": "SUCCESS",
+          "reward": 24.34,
+          "steps": 18,
+          "picked_up": true
+        },
+        {
+          "episode": 6,
+          "seed": 4005,
+          "outcome": "TIMEOUT",
+          "reward": 21.11,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 7,
+          "seed": 4006,
+          "outcome": "SUCCESS",
+          "reward": 20.5,
+          "steps": 11,
+          "picked_up": true
+        },
+        {
+          "episode": 8,
+          "seed": 4007,
+          "outcome": "SUCCESS",
+          "reward": 17.83,
+          "steps": 9,
+          "picked_up": true
+        },
+        {
+          "episode": 9,
+          "seed": 4008,
+          "outcome": "SUCCESS",
+          "reward": 25.53,
+          "steps": 327,
+          "picked_up": true
+        },
+        {
+          "episode": 10,
+          "seed": 4009,
+          "outcome": "TIMEOUT",
+          "reward": 21.61,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 11,
+          "seed": 4010,
+          "outcome": "SUCCESS",
+          "reward": 33.69,
+          "steps": 24,
+          "picked_up": true
+        },
+        {
+          "episode": 12,
+          "seed": 4011,
+          "outcome": "TIMEOUT",
+          "reward": 13.9,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 13,
+          "seed": 4012,
+          "outcome": "SUCCESS",
+          "reward": 38.65,
+          "steps": 34,
+          "picked_up": true
+        },
+        {
+          "episode": 14,
+          "seed": 4013,
+          "outcome": "SUCCESS",
+          "reward": 23.96,
+          "steps": 27,
+          "picked_up": true
+        },
+        {
+          "episode": 15,
+          "seed": 4014,
+          "outcome": "SUCCESS",
+          "reward": 31.59,
+          "steps": 49,
+          "picked_up": true
+        },
+        {
+          "episode": 16,
+          "seed": 4015,
+          "outcome": "SUCCESS",
+          "reward": 28.17,
+          "steps": 20,
+          "picked_up": true
+        },
+        {
+          "episode": 17,
+          "seed": 4016,
+          "outcome": "SUCCESS",
+          "reward": 20.31,
+          "steps": 18,
+          "picked_up": true
+        },
+        {
+          "episode": 18,
+          "seed": 4017,
+          "outcome": "SUCCESS",
+          "reward": 28.66,
+          "steps": 20,
+          "picked_up": true
+        },
+        {
+          "episode": 19,
+          "seed": 4018,
+          "outcome": "TIMEOUT",
+          "reward": -1.08,
+          "steps": 500,
+          "picked_up": false
+        },
+        {
+          "episode": 20,
+          "seed": 4019,
+          "outcome": "SUCCESS",
+          "reward": 26.11,
+          "steps": 15,
+          "picked_up": true
+        },
+        {
+          "episode": 21,
+          "seed": 4020,
+          "outcome": "SUCCESS",
+          "reward": 24.09,
+          "steps": 19,
+          "picked_up": true
+        },
+        {
+          "episode": 22,
+          "seed": 4021,
+          "outcome": "TIMEOUT",
+          "reward": 8.9,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 23,
+          "seed": 4022,
+          "outcome": "SUCCESS",
+          "reward": 23.67,
+          "steps": 19,
+          "picked_up": true
+        },
+        {
+          "episode": 24,
+          "seed": 4023,
+          "outcome": "TIMEOUT",
+          "reward": 8.26,
+          "steps": 500,
+          "picked_up": false
+        },
+        {
+          "episode": 25,
+          "seed": 4024,
+          "outcome": "TIMEOUT",
+          "reward": 3.63,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 26,
+          "seed": 4025,
+          "outcome": "TIMEOUT",
+          "reward": 14.19,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 27,
+          "seed": 4026,
+          "outcome": "SUCCESS",
+          "reward": 23.7,
+          "steps": 18,
+          "picked_up": true
+        },
+        {
+          "episode": 28,
+          "seed": 4027,
+          "outcome": "TIMEOUT",
+          "reward": 31.2,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 29,
+          "seed": 4028,
+          "outcome": "TIMEOUT",
+          "reward": 17.62,
+          "steps": 500,
+          "picked_up": true
+        },
+        {
+          "episode": 30,
+          "seed": 4029,
+          "outcome": "SUCCESS",
+          "reward": 24.04,
+          "steps": 22,
+          "picked_up": true
+        }
+      ]
+    }
+  }
+}
