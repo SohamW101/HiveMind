@@ -49,10 +49,9 @@ The demo opens PyBullet in GUI mode, resets a randomized world, reads the actual
 
 1. Navigate to the first available carton using a grid path that avoids shelf cells.
 2. Face the carton and execute pickup.
-3. Return to a cell adjacent to the depot.
-4. Face the depot and execute drop without entering the depot cell.
+3. Stop after the pickup so the carried carton and raised lidar can be inspected.
 
-The other three bots remain in their initial positions. Despite the historical filename, `play_multi.py` is not currently a multi-bot choreography or an all-resource delivery script.
+The other three bots remain in their initial positions. Drop and depot delivery are not currently part of this demo. Despite the historical filename, `play_multi.py` is not currently a multi-bot choreography or an all-resource delivery script.
 
 For a headless smoke test, create the environment with `render_mode=None` and call `reset()` and `step()` from Python:
 

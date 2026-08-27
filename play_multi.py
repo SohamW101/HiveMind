@@ -68,15 +68,6 @@ def approach_cell(resource, blocked, grid_size):
     raise RuntimeError(f"No clear approach cell for resource {resource}")
 
 
-def depot_approach_cell(current, blocked, grid_size):
-    candidates = [(0, 1), (1, 0)]
-    candidates.sort(key=lambda cell: abs(cell[0] - current[0]) + abs(cell[1] - current[1]))
-    for candidate in candidates:
-        if candidate not in blocked and candidate != (0, 0):
-            return candidate
-    raise RuntimeError("No clear cell adjacent to the depot")
-
-
 def turn_to(env, current_direction, target_direction):
     for _ in range((target_direction - current_direction) % 4):
         env.step([2, 6, 6, 6])
@@ -92,7 +83,7 @@ def navigate_to_cell(env, current, target, direction, blocked):
     return current, direction
 
 
-def navigate_to_pickup_and_depot(env):
+def navigate_to_pickup(env):
     cells = resource_cells(env)
     if not cells:
         raise RuntimeError("The reset world contains no resources")
@@ -113,14 +104,6 @@ def navigate_to_pickup_and_depot(env):
         raise RuntimeError(f"Bot 0 failed to pick up resource at {resource}")
     print(f"Bot 0 picked up resource at {resource}; lidar raised to {env.lidar_carry_height} m")
 
-    depot_approach = depot_approach_cell(current, blocked, grid_size)
-    current, direction = navigate_to_cell(env, current, depot_approach, direction, blocked)
-    direction = turn_to(env, direction, direction_for(depot_approach, (0, 0)))
-    env.step([5, 6, 6, 6])
-    if env.is_carrying[0]:
-        raise RuntimeError("Bot 0 failed to drop the resource at the depot")
-    print(f"Bot 0 dropped the resource from depot approach cell {depot_approach}")
-
 
 def play_demo():
     print("Initializing single-bot resource pickup demo...")
@@ -129,7 +112,7 @@ def play_demo():
         env.reset()
         pb.resetDebugVisualizerCamera(cameraDistance=16.0, cameraYaw=0,
                                       cameraPitch=-89.9, cameraTargetPosition=[0, 0, 0])
-        navigate_to_pickup_and_depot(env)
+        navigate_to_pickup(env)
         time.sleep(2)
     except KeyboardInterrupt:
         print("Demo stopped by user.")
