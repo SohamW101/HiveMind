@@ -1,214 +1,141 @@
 import time
-import math
+from collections import deque
+
 import pybullet as pb
+
 from hivemind_env.env import HiveMindMultiAgentEnv
 
-def make_path(*corners):
-    path = []
-    for i in range(len(corners) - 1):
-        r1, c1 = corners[i]
-        r2, c2 = corners[i+1]
-        if r1 == r2:
-            step = 1 if c2 > c1 else -1
-            for c in range(c1, c2 + step, step):
-                path.append((r1, c))
-        elif c1 == c2:
-            step = 1 if r2 > r1 else -1
-            for r in range(r1, r2 + step, step):
-                path.append((r, c1))
-    clean = [path[0]]
-    for p in path[1:]:
-        if p != clean[-1]: clean.append(p)
-    return clean
 
-def generate_actions(path, start_yaw_dir):
-    actions = []
-    current_yaw = start_yaw_dir
-    
-    for i in range(len(path) - 1):
-        r1, c1 = path[i]
-        r2, c2 = path[i+1]
-        
-        dr, dc = r2 - r1, c2 - c1
-        target_yaw = 0
-        if dc == 1: target_yaw = 0
-        elif dr == -1: target_yaw = 1
-        elif dc == -1: target_yaw = 2
-        elif dr == 1: target_yaw = 3
-        
-        while current_yaw != target_yaw:
-            if (current_yaw + 1) % 4 == target_yaw:
-                current_yaw = (current_yaw + 1) % 4
-                actions.append((2, (r1, c1), current_yaw))
-            elif (current_yaw - 1) % 4 == target_yaw:
-                current_yaw = (current_yaw - 1) % 4
-                actions.append((3, (r1, c1), current_yaw))
-            else:
-                current_yaw = (current_yaw + 2) % 4
-                actions.append((2, (r1, c1), (current_yaw - 1)%4))
-                actions.append((2, (r1, c1), current_yaw))
-                
-        actions.append((0, (r2, c2), current_yaw))
-        
-    return actions, current_yaw
+def resource_cells(env):
+    return [
+        env._world_to_grid(*pb.getBasePositionAndOrientation(resource_id, physicsClientId=env.client_id)[0][:2])
+        for resource_id in env.resource_ids
+    ]
 
-class Controller:
-    def __init__(self, idx, start_pos):
-        self.idx = idx
-        self.grid_pos = start_pos
-        self.yaw_dir = 0
-        self.actions = []
-        self.step = 0
-        self.done = False
 
-    def add_path(self, path):
-        new_acts, self.yaw_dir = generate_actions(path, self.yaw_dir)
-        self.actions.extend(new_acts)
-        
-    def add_action(self, action_id):
-        self.actions.append((action_id, self.grid_pos, self.yaw_dir))
+def shelf_cells(cells, grid_size):
+    resources = set(cells)
+    return {
+        (row, column)
+        for row in range(1, grid_size - 1, 2)
+        for column in range(1, grid_size - 1)
+        if (row, column) not in resources
+    }
 
-def build_controllers():
-    c0 = Controller(0, (0, 1))
-    c1 = Controller(1, (1, 0))
-    c2 = Controller(2, (0, 2))
-    c3 = Controller(3, (2, 0))
-    
-    # Bot 0 Ring Road
-    c0.add_path(make_path((0,1), (0,0), (2,0), (2,4)))
-    c0.add_action(4)
-    c0.add_path(make_path((2,4), (2,12), (0,12), (0,1)))
-    c0.add_action(5)
-    
-    c0.add_path(make_path((0,1), (0,0), (6,0), (6,4)))
-    c0.add_action(4)
-    c0.add_path(make_path((6,4), (6,12), (0,12), (0,1)))
-    c0.add_action(5)
-    
-    c0.add_path(make_path((0,1), (0,0), (10,0), (10,4)))
-    c0.add_action(4)
-    c0.add_path(make_path((10,4), (10,12), (0,12), (0,1)))
-    c0.add_action(5)
-    
-    c0.add_path(make_path((0,1), (0,0), (12,0), (12,1)))
-    
-    # Bot 1 Ring Road
-    c1.add_path(make_path((1,0), (2,0), (2,8)))
-    c1.add_action(4)
-    c1.add_path(make_path((2,8), (2,12), (0,12), (0,0), (1,0)))
-    c1.add_action(5)
-    
-    c1.add_path(make_path((1,0), (6,0), (6,8)))
-    c1.add_action(4)
-    c1.add_path(make_path((6,8), (6,12), (0,12), (0,0), (1,0)))
-    c1.add_action(5)
-    
-    c1.add_path(make_path((1,0), (10,0), (10,8)))
-    c1.add_action(4)
-    c1.add_path(make_path((10,8), (10,12), (0,12), (0,0), (1,0)))
-    c1.add_action(5)
-    
-    c1.add_path(make_path((1,0), (12,0), (12,2)))
-    
-    # Bot 2 Ring Road
-    c2.add_path(make_path((0,2), (0,0), (4,0), (4,4)))
-    c2.add_action(4)
-    c2.add_path(make_path((4,4), (4,12), (0,12), (0,1)))
-    c2.add_action(5)
-    
-    c2.add_path(make_path((0,1), (0,0), (8,0), (8,4)))
-    c2.add_action(4)
-    c2.add_path(make_path((8,4), (8,12), (0,12), (0,1)))
-    c2.add_action(5)
-    
-    c2.add_path(make_path((0,1), (0,0), (12,0), (12,4)))
-    c2.add_action(4)
-    c2.add_path(make_path((12,4), (12,12), (0,12), (0,1)))
-    c2.add_action(5)
-    
-    c2.add_path(make_path((0,1), (0,0), (12,0), (12,3)))
-    
-    # Bot 3 Ring Road
-    c3.add_path(make_path((2,0), (4,0), (4,8)))
-    c3.add_action(4)
-    c3.add_path(make_path((4,8), (4,12), (0,12), (0,0), (1,0)))
-    c3.add_action(5)
-    
-    c3.add_path(make_path((1,0), (8,0), (8,8)))
-    c3.add_action(4)
-    c3.add_path(make_path((8,8), (8,12), (0,12), (0,0), (1,0)))
-    c3.add_action(5)
-    
-    c3.add_path(make_path((1,0), (12,0), (12,8)))
-    c3.add_action(4)
-    c3.add_path(make_path((12,8), (12,12), (0,12), (0,0), (1,0)))
-    c3.add_action(5)
-    
-    c3.add_path(make_path((1,0), (12,0), (12,4)))
-    
-    return [c0, c1, c2, c3]
+
+def path_between(start, goal, blocked, grid_size):
+    queue = deque([start])
+    previous = {start: None}
+    while queue:
+        current = queue.popleft()
+        if current == goal:
+            path = [current]
+            while previous[path[-1]] is not None:
+                path.append(previous[path[-1]])
+            return list(reversed(path))
+        row, column = current
+        for candidate in ((row - 1, column), (row + 1, column),
+                          (row, column - 1), (row, column + 1)):
+            if not (0 <= candidate[0] < grid_size and 0 <= candidate[1] < grid_size):
+                continue
+            if candidate in blocked or candidate in previous:
+                continue
+            previous[candidate] = current
+            queue.append(candidate)
+    raise RuntimeError(f"No clear path from {start} to {goal}")
+
+
+def direction_for(start, end):
+    return {
+        (0, 1): 0,
+        (-1, 0): 1,
+        (0, -1): 2,
+        (1, 0): 3,
+    }[(end[0] - start[0], end[1] - start[1])]
+
+
+def approach_cell(resource, blocked, grid_size):
+    candidates = [
+        (resource[0] - 1, resource[1]),
+        (resource[0] + 1, resource[1]),
+        (resource[0], resource[1] - 1),
+        (resource[0], resource[1] + 1),
+    ]
+    for candidate in candidates:
+        if (0 <= candidate[0] < grid_size and 0 <= candidate[1] < grid_size
+                and candidate not in blocked and candidate != (0, 0)):
+            return candidate
+    raise RuntimeError(f"No clear approach cell for resource {resource}")
+
+
+def depot_approach_cell(current, blocked, grid_size):
+    candidates = [(0, 1), (1, 0)]
+    candidates.sort(key=lambda cell: abs(cell[0] - current[0]) + abs(cell[1] - current[1]))
+    for candidate in candidates:
+        if candidate not in blocked and candidate != (0, 0):
+            return candidate
+    raise RuntimeError("No clear cell adjacent to the depot")
+
+
+def turn_to(env, current_direction, target_direction):
+    for _ in range((target_direction - current_direction) % 4):
+        env.step([2, 6, 6, 6])
+        current_direction = (current_direction + 1) % 4
+    return current_direction
+
+
+def navigate_to_cell(env, current, target, direction, blocked):
+    for next_cell in path_between(current, target, blocked, env.grid_size)[1:]:
+        direction = turn_to(env, direction, direction_for(current, next_cell))
+        env.step([0, 6, 6, 6])
+        current = next_cell
+    return current, direction
+
+
+def navigate_to_pickup_and_depot(env):
+    cells = resource_cells(env)
+    if not cells:
+        raise RuntimeError("The reset world contains no resources")
+
+    grid_size = env.grid_size
+    resource = cells[0]
+    blocked = shelf_cells(cells, grid_size) | {(0, 0)}
+    approach = approach_cell(resource, blocked, grid_size)
+    current = env._world_to_grid(*pb.getBasePositionAndOrientation(
+        env.robot_ids[0], physicsClientId=env.client_id)[0][:2])
+    direction = 0
+
+    current, direction = navigate_to_cell(env, current, approach, direction, blocked)
+
+    direction = turn_to(env, direction, direction_for(approach, resource))
+    env.step([4, 6, 6, 6])
+    if not env.is_carrying[0]:
+        raise RuntimeError(f"Bot 0 failed to pick up resource at {resource}")
+    print(f"Bot 0 picked up resource at {resource}; lidar raised to {env.lidar_carry_height} m")
+
+    depot_approach = depot_approach_cell(current, blocked, grid_size)
+    current, direction = navigate_to_cell(env, current, depot_approach, direction, blocked)
+    direction = turn_to(env, direction, direction_for(depot_approach, (0, 0)))
+    env.step([5, 6, 6, 6])
+    if env.is_carrying[0]:
+        raise RuntimeError("Bot 0 failed to drop the resource at the depot")
+    print(f"Bot 0 dropped the resource from depot approach cell {depot_approach}")
+
 
 def play_demo():
-    print("Initializing 4-Agent Simultaneous Ring Road Choreography...")
+    print("Initializing single-bot resource pickup demo...")
     env = HiveMindMultiAgentEnv(render_mode="human")
-    obs, info = env.reset()
-    
-    pb.resetDebugVisualizerCamera(cameraDistance=16.0, cameraYaw=0, cameraPitch=-89.9, cameraTargetPosition=[0, 0, 0])
-    
-    controllers = build_controllers()
-    
     try:
-        while True:
-            step_actions = []
-            planned_pos = []
-            
-            for i, c in enumerate(controllers):
-                if c.step < len(c.actions):
-                    a, n_pos, n_yaw = c.actions[c.step]
-                    
-                    conflict = False
-                    for j, other_c in enumerate(controllers):
-                        if j != i:
-                            # Cannot step into someone's current position
-                            if n_pos == other_c.grid_pos:
-                                conflict = True
-                    # Cannot step into a cell that a higher priority bot just reserved for THIS step
-                    if n_pos in planned_pos and n_pos != c.grid_pos:
-                        conflict = True
-                        
-                    if conflict:
-                        step_actions.append(6) # Stay
-                        planned_pos.append(c.grid_pos)
-                    else:
-                        step_actions.append(a)
-                        planned_pos.append(n_pos)
-                else:
-                    step_actions.append(6)
-                    planned_pos.append(c.grid_pos)
-            
-            obs, reward, term, trunc, info = env.step(step_actions)
-            
-            # Commit
-            for i, c in enumerate(controllers):
-                if step_actions[i] != 6 and c.step < len(c.actions):
-                    c.grid_pos = planned_pos[i]
-                    c.yaw_dir = c.actions[c.step][2]
-                    c.step += 1
-            
-            if info['remaining_resources'] == 0:
-                print("All resources delivered!")
-                break
-                
-            if all(c.step >= len(c.actions) for c in controllers):
-                print("All choreographed paths completed.")
-                break
-                
+        env.reset()
+        pb.resetDebugVisualizerCamera(cameraDistance=16.0, cameraYaw=0,
+                                      cameraPitch=-89.9, cameraTargetPosition=[0, 0, 0])
+        navigate_to_pickup_and_depot(env)
+        time.sleep(2)
     except KeyboardInterrupt:
-        print("Demo Stopped by User.")
+        print("Demo stopped by user.")
     finally:
-        print("Sequence complete. Exiting...")
-        time.sleep(3)
         env.close()
+
 
 if __name__ == "__main__":
     play_demo()

@@ -9,6 +9,10 @@ import time
 
 class HiveMindMultiAgentEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
+    carton_size = 0.5
+    gripper_reach = 0.3
+    lidar_initial_height = 0.0
+    lidar_carry_height = 0.5
 
     def __init__(self, render_mode=None, difficulty_level=1, obs_size=21, show_lidar=None):
         super().__init__()
@@ -112,7 +116,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                 'lidar_joint_idx': None,
                 'current_arm_yaw': 0.0,
                 'current_finger_pos': 0.03,  # Scaled by 2x from original 0.015
-                'current_lidar_height': 0.0
+                'current_lidar_height': self.lidar_initial_height
             }
             
             for j in range(pb.getNumJoints(rid, physicsClientId=self.client_id)):
@@ -268,7 +272,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                     res_pos, _ = pb.getBasePositionAndOrientation(nearest_res, physicsClientId=self.client_id)
                     target_state['arm_yaw'] = self._get_cardinal_direction_angle(res_pos, pos, yaw)
                     target_state['finger'] = -0.01
-                    target_state['lidar'] = 0.1
+                    target_state['lidar'] = self.lidar_carry_height
                     self.is_carrying[i] = True
                     self.carried_resource_ids[i] = nearest_res
                     self.resource_ids.remove(nearest_res)
@@ -337,25 +341,25 @@ class HiveMindMultiAgentEnv(gym.Env):
 
                 # Resource interpolation
                 arm_world_angle = iyaw + st['current_arm_yaw']
-                carried_rx = ix + 0.3 * math.cos(arm_world_angle)
-                carried_ry = iy + 0.3 * math.sin(arm_world_angle)
+                carried_rx = ix + self.gripper_reach * math.cos(arm_world_angle)
+                carried_ry = iy + self.gripper_reach * math.sin(arm_world_angle)
                 
                 if actions[i] == 4 and 'pickup_target' in t: # Picking up
                     res_id = t['pickup_target']
                     start_res_pos = t['res_start_pos']
                     cur_res_x = start_res_pos[0] + alpha * (carried_rx - start_res_pos[0])
                     cur_res_y = start_res_pos[1] + alpha * (carried_ry - start_res_pos[1])
-                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.25], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
                 elif actions[i] == 5 and 'dropoff' in t: # Dropping off
                     res_id = self.carried_resource_ids[i]
                     if res_id:
                         dep_pos = t['drop_target']
                         cur_res_x = carried_rx + alpha * (dep_pos[0] - carried_rx)
                         cur_res_y = carried_ry + alpha * (dep_pos[1] - carried_ry)
-                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.25], iorn, physicsClientId=self.client_id)
+                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
                 elif self.is_carrying[i] and self.carried_resource_ids[i]: # Carrying
                     res_id = self.carried_resource_ids[i]
-                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, 0.25], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
 
             pb.stepSimulation(physicsClientId=self.client_id)
             if self.render_mode == "human":
@@ -364,8 +368,8 @@ class HiveMindMultiAgentEnv(gym.Env):
         # Post-substep handling
         for i in range(self.num_agents):
             if actions[i] == 4 and 'pickup_target' in targets[i]:
-                self.agent_state[i]['current_arm_yaw'] = 0.0
-                self._set_arm_and_lidar_joints(i, 0.0, -0.01, 0.1)
+                self.agent_state[i]['current_arm_yaw'] = targets[i]['arm_yaw']
+                self._set_arm_and_lidar_joints(i, targets[i]['arm_yaw'], -0.01, self.lidar_carry_height)
                 
             elif actions[i] == 5 and 'dropoff' in targets[i]:
                 res_id = self.carried_resource_ids[i]
@@ -387,7 +391,7 @@ class HiveMindMultiAgentEnv(gym.Env):
             poses.append(p)
         return {
             "robot_pos": poses,
-            "remaining_resources": len(self.resource_ids)
+            "remaining_resources": len(self.resource_ids) + sum(self.is_carrying)
         }
 
     def render(self):
