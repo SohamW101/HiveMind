@@ -1,0 +1,388 @@
+<?xml version="1.0"?>
+<robot name="shelf_6m">
+
+  <material name="brown">
+    <color rgba="0.55 0.27 0.07 1.0"/>
+  </material>
+
+  <material name="black">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+
+  <link name="base"/>
+
+
+  <link name="shelf_1">
+    <visual>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+      <material name="brown"/>
+    </visual>
+    <collision>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="30.0"/>
+      <inertia ixx="1.258" ixy="0" ixz="0"
+               iyy="11.258" iyz="0" izz="12.5"/>
+    </inertial>
+  </link>
+
+  <joint name="shelf_1_joint" type="fixed">
+    <parent link="base"/>
+    <child link="shelf_1"/>
+    <origin xyz="0 0 0.3"/>
+  </joint>
+
+  <link name="shelf_2">
+    <visual>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+      <material name="brown"/>
+    </visual>
+    <collision>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="30.0"/>
+      <inertia ixx="1.258" ixy="0" ixz="0"
+               iyy="11.258" iyz="0" izz="12.5"/>
+    </inertial>
+  </link>
+
+  <joint name="shelf_2_joint" type="fixed">
+    <parent link="base"/>
+    <child link="shelf_2"/>
+    <origin xyz="0 0 1.0"/>
+  </joint>
+
+  <link name="shelf_3">
+    <visual>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+      <material name="brown"/>
+    </visual>
+    <collision>
+      <geometry><box size="6.0 1.0 0.08"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="30.0"/>
+      <inertia ixx="1.258" ixy="0" ixz="0"
+               iyy="11.258" iyz="0" izz="12.5"/>
+    </inertial>
+  </link>
+
+  <joint name="shelf_3_joint" type="fixed">
+    <parent link="base"/>
+    <child link="shelf_3"/>
+    <origin xyz="0 0 1.8"/>
+  </joint>
+
+  <link name="post_front_1">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_1_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_1"/>
+    <origin xyz="-3.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_1">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_1_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_1"/>
+    <origin xyz="-3.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_2">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_2_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_2"/>
+    <origin xyz="-2.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_2">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_2_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_2"/>
+    <origin xyz="-2.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_3">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_3_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_3"/>
+    <origin xyz="-1.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_3">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_3_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_3"/>
+    <origin xyz="-1.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_4">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_4_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_4"/>
+    <origin xyz="0.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_4">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_4_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_4"/>
+    <origin xyz="0.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_5">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_5_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_5"/>
+    <origin xyz="1.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_5">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_5_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_5"/>
+    <origin xyz="1.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_6">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_6_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_6"/>
+    <origin xyz="2.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_6">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_6_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_6"/>
+    <origin xyz="2.0 0.5 1.0"/>
+  </joint>
+
+  <link name="post_front_7">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_front_7_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_front_7"/>
+    <origin xyz="3.0 -0.5 1.0"/>
+  </joint>
+
+  <link name="post_rear_7">
+    <visual>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <geometry><box size="0.06 0.06 2.0"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0"/>
+      <mass value="3.0"/>
+      <inertia ixx="1.0009" ixy="0" ixz="0"
+               iyy="1.0009" iyz="0" izz="0.0018"/>
+    </inertial>
+  </link>
+
+  <joint name="post_rear_7_joint" type="fixed">
+    <parent link="base"/>
+    <child link="post_rear_7"/>
+    <origin xyz="3.0 0.5 1.0"/>
+  </joint>
+</robot>

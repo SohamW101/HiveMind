@@ -118,20 +118,32 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.obstacle_ids = []
         self.resource_ids = []
         
-        shelf_urdf_path = os.path.join(os.path.dirname(__file__), "assets", "shelf.urdf")
+        assets_dir = os.path.join(os.path.dirname(__file__), "assets")
         shelf_rows = [1, 3, 5, 7, 9, 11]
         for r in shelf_rows:
-            partitions = [(1, 3), (5, 3), (9, 3)]
+            # Randomize x, y, z such that x + y + z = 9 and x, y, z >= 1
+            cuts = sorted(random.sample(range(1, 9), 2))
+            x = cuts[0]
+            y = cuts[1] - cuts[0]
+            z = 9 - cuts[1]
+            
+            partitions = [
+                (1, x),
+                (x + 2, y),
+                (x + y + 3, z)
+            ]
+            
             for (start_c, length) in partitions:
                 cx, cy = self._grid_to_world(r, start_c + length/2.0 - 0.5)
+                shelf_urdf_path = os.path.join(assets_dir, f"shelf_{length}m.urdf")
                 obs_id = pb.loadURDF(shelf_urdf_path, basePosition=[cx, cy, 0.0], useFixedBase=True, physicsClientId=self.client_id)
                 self.obstacle_ids.append(obs_id)
             
-            for c in [4, 8]:
+            # Gaps are at c = x + 1 and c = x + y + 2
+            for c in [x + 1, x + y + 2]:
                 resx, resy = self._grid_to_world(r, c)
-                res_col = pb.createCollisionShape(pb.GEOM_CYLINDER, radius=0.15, height=0.2, physicsClientId=self.client_id)
-                res_vis = pb.createVisualShape(pb.GEOM_CYLINDER, radius=0.15, length=0.2, rgbaColor=[0, 1, 0, 1], physicsClientId=self.client_id)
-                res_id = pb.createMultiBody(baseMass=1.0, baseCollisionShapeIndex=res_col, baseVisualShapeIndex=res_vis, basePosition=[resx, resy, 0.1], physicsClientId=self.client_id)
+                carton_urdf_path = os.path.join(assets_dir, "carton.urdf")
+                res_id = pb.loadURDF(carton_urdf_path, basePosition=[resx, resy, 0.0], physicsClientId=self.client_id)
                 self.resource_ids.append(res_id)
 
         # Static Boundary Walls around the 13x13 grid
@@ -313,17 +325,17 @@ class HiveMindMultiAgentEnv(gym.Env):
                     start_res_pos = t['res_start_pos']
                     cur_res_x = start_res_pos[0] + alpha * (carried_rx - start_res_pos[0])
                     cur_res_y = start_res_pos[1] + alpha * (carried_ry - start_res_pos[1])
-                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.1], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.25], iorn, physicsClientId=self.client_id)
                 elif actions[i] == 5 and 'dropoff' in t: # Dropping off
                     res_id = self.carried_resource_ids[i]
                     if res_id:
                         dep_pos = t['drop_target']
                         cur_res_x = carried_rx + alpha * (dep_pos[0] - carried_rx)
                         cur_res_y = carried_ry + alpha * (dep_pos[1] - carried_ry)
-                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.1], iorn, physicsClientId=self.client_id)
+                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, 0.25], iorn, physicsClientId=self.client_id)
                 elif self.is_carrying[i] and self.carried_resource_ids[i]: # Carrying
                     res_id = self.carried_resource_ids[i]
-                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, 0.1], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, 0.25], iorn, physicsClientId=self.client_id)
 
             pb.stepSimulation(physicsClientId=self.client_id)
             if self.render_mode == "human":

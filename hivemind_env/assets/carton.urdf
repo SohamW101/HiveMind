@@ -1,0 +1,262 @@
+<?xml version="1.0"?>
+<robot name="carton_box">
+
+  <!-- ========================================================= -->
+  <!-- MATERIALS                                                 -->
+  <!-- ========================================================= -->
+
+  <material name="cardboard">
+    <color rgba="0.62 0.40 0.19 1.0"/>
+  </material>
+
+  <material name="tape">
+    <color rgba="0.88 0.78 0.62 0.65"/>
+  </material>
+
+  <material name="seam">
+    <color rgba="0.35 0.22 0.10 1.0"/>
+  </material>
+
+  <!-- ========================================================= -->
+  <!-- MAIN BOX: 0.5 m x 0.5 m x 0.5 m                          -->
+  <!-- Bottom of box is at Z = 0                                 -->
+  <!-- ========================================================= -->
+
+  <link name="carton">
+
+    <visual>
+      <origin xyz="0 0 0.25"/>
+      <geometry>
+        <box size="0.5 0.5 0.5"/>
+      </geometry>
+      <material name="cardboard"/>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0.25"/>
+      <geometry>
+        <box size="0.5 0.5 0.5"/>
+      </geometry>
+    </collision>
+
+    <inertial>
+      <origin xyz="0 0 0.25"/>
+      <mass value="10.0"/>
+      <inertia ixx="0.4166667" ixy="0" ixz="0"
+               iyy="0.4166667" iyz="0" izz="0.4166667"/>
+    </inertial>
+
+  </link>
+
+
+  <!-- ========================================================= -->
+  <!-- TAPE STRIP 1: runs X direction across top                -->
+  <!-- and continues down front and rear faces                   -->
+  <!-- ========================================================= -->
+
+  <link name="tape_top_x">
+    <visual>
+      <geometry>
+        <box size="0.50 0.075 0.004"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_top_x_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_top_x"/>
+    <origin xyz="0 0 0.502"/>
+  </joint>
+
+
+  <link name="tape_front_x">
+    <visual>
+      <geometry>
+        <box size="0.075 0.004 0.50"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_front_x_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_front_x"/>
+    <origin xyz="0 -0.252 0.25"/>
+  </joint>
+
+
+  <link name="tape_rear_x">
+    <visual>
+      <geometry>
+        <box size="0.075 0.004 0.50"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_rear_x_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_rear_x"/>
+    <origin xyz="0 0.252 0.25"/>
+  </joint>
+
+
+  <!-- ========================================================= -->
+  <!-- TAPE STRIP 2: runs Y direction across top                -->
+  <!-- and continues down left and right faces                   -->
+  <!-- ========================================================= -->
+
+  <link name="tape_top_y">
+    <visual>
+      <geometry>
+        <box size="0.075 0.50 0.004"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_top_y_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_top_y"/>
+    <origin xyz="0 0 0.505"/>
+  </joint>
+
+
+  <link name="tape_left_y">
+    <visual>
+      <geometry>
+        <box size="0.004 0.075 0.50"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_left_y_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_left_y"/>
+    <origin xyz="-0.252 0 0.25"/>
+  </joint>
+
+
+  <link name="tape_right_y">
+    <visual>
+      <geometry>
+        <box size="0.004 0.075 0.50"/>
+      </geometry>
+      <material name="tape"/>
+    </visual>
+  </link>
+
+  <joint name="tape_right_y_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="tape_right_y"/>
+    <origin xyz="0.252 0 0.25"/>
+  </joint>
+
+
+  <!-- ========================================================= -->
+  <!-- TOP FLAP SEAMS                                             -->
+  <!-- Thin dark lines make the box look like a folded carton.  -->
+  <!-- ========================================================= -->
+
+  <link name="top_seam_x">
+    <visual>
+      <geometry>
+        <box size="0.50 0.008 0.002"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="top_seam_x_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="top_seam_x"/>
+    <origin xyz="0 0 0.503"/>
+  </joint>
+
+
+  <link name="top_seam_y">
+    <visual>
+      <geometry>
+        <box size="0.008 0.50 0.002"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="top_seam_y_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="top_seam_y"/>
+    <origin xyz="0 0 0.506"/>
+  </joint>
+
+
+  <!-- ========================================================= -->
+  <!-- VERTICAL CARTON CORNER SEAMS                              -->
+  <!-- ========================================================= -->
+
+  <link name="corner_front_left">
+    <visual>
+      <geometry>
+        <box size="0.008 0.006 0.50"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="corner_front_left_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="corner_front_left"/>
+    <origin xyz="-0.251 -0.251 0.25"/>
+  </joint>
+
+
+  <link name="corner_front_right">
+    <visual>
+      <geometry>
+        <box size="0.008 0.006 0.50"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="corner_front_right_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="corner_front_right"/>
+    <origin xyz="0.251 -0.251 0.25"/>
+  </joint>
+
+
+  <link name="corner_rear_left">
+    <visual>
+      <geometry>
+        <box size="0.008 0.006 0.50"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="corner_rear_left_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="corner_rear_left"/>
+    <origin xyz="-0.251 0.251 0.25"/>
+  </joint>
+
+
+  <link name="corner_rear_right">
+    <visual>
+      <geometry>
+        <box size="0.008 0.006 0.50"/>
+      </geometry>
+      <material name="seam"/>
+    </visual>
+  </link>
+
+  <joint name="corner_rear_right_joint" type="fixed">
+    <parent link="carton"/>
+    <child link="corner_rear_right"/>
+    <origin xyz="0.251 0.251 0.25"/>
+  </joint>
+
+</robot>
