@@ -61,6 +61,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_top_x_joint" type="fixed">
@@ -77,6 +78,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_front_x_joint" type="fixed">
@@ -93,6 +95,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_rear_x_joint" type="fixed">
@@ -114,6 +117,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_top_y_joint" type="fixed">
@@ -130,6 +134,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_left_y_joint" type="fixed">
@@ -146,6 +151,7 @@
       </geometry>
       <material name="tape"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="tape_right_y_joint" type="fixed">
@@ -167,6 +173,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="top_seam_x_joint" type="fixed">
@@ -183,6 +190,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="top_seam_y_joint" type="fixed">
@@ -203,6 +211,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="corner_front_left_joint" type="fixed">
@@ -219,6 +228,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="corner_front_right_joint" type="fixed">
@@ -235,6 +245,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="corner_rear_left_joint" type="fixed">
@@ -251,6 +262,7 @@
       </geometry>
       <material name="seam"/>
     </visual>
+    <inertial><mass value="0"/><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/></inertial>
   </link>
 
   <joint name="corner_rear_right_joint" type="fixed">

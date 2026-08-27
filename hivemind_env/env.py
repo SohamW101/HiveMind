@@ -61,12 +61,32 @@ class HiveMindMultiAgentEnv(gym.Env):
         
         pb.resetSimulation(physicsClientId=self.client_id)
         pb.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
-        pb.loadURDF("plane.urdf", physicsClientId=self.client_id)
+
+        # Keep the warehouse floor flush with z=0 for the shelf and carton assets.
+        floor_half_extents = [self.grid_size * self.cell_size / 2.0, self.grid_size * self.cell_size / 2.0, 0.05]
+        floor_col = pb.createCollisionShape(
+            pb.GEOM_BOX,
+            halfExtents=floor_half_extents,
+            physicsClientId=self.client_id,
+        )
+        floor_vis = pb.createVisualShape(
+            pb.GEOM_BOX,
+            halfExtents=floor_half_extents,
+            rgbaColor=[0.68, 0.48, 0.28, 1.0],
+            physicsClientId=self.client_id,
+        )
+        pb.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=floor_col,
+            baseVisualShapeIndex=floor_vis,
+            basePosition=[0, 0, -0.05],
+            physicsClientId=self.client_id,
+        )
 
         # Depot position (Corner: r=0, c=0)
         self.depot_pos_grid = (0, 0)
         dx, dy = self._grid_to_world(0, 0)
-        depot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.5, self.cell_size*0.5, 0.01], rgbaColor=[1, 0, 0, 0.5], physicsClientId=self.client_id)
+        depot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.5, self.cell_size*0.5, 0.01], rgbaColor=[0, 0, 0, 0.5], physicsClientId=self.client_id)
         self.depot_id = pb.createMultiBody(baseMass=0, baseVisualShapeIndex=depot_vis, basePosition=[dx, dy, 0.01], physicsClientId=self.client_id)
 
         # Spawn 4 bots near the depot
@@ -153,7 +173,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         wall_positions = [(0, b_size + 0.1, 0.5), (0, -b_size - 0.1, 0.5), (-b_size - 0.1, 0, 0.5), (b_size + 0.1, 0, 0.5)]
         for he, pos in zip(wall_half_extents, wall_positions):
             w_col = pb.createCollisionShape(pb.GEOM_BOX, halfExtents=he, physicsClientId=self.client_id)
-            w_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=he, rgbaColor=[0.2, 0.2, 0.2, 1], physicsClientId=self.client_id)
+            w_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=he, rgbaColor=[0.38, 0.20, 0.08, 1], physicsClientId=self.client_id)
             w_id = pb.createMultiBody(baseMass=0, baseCollisionShapeIndex=w_col, baseVisualShapeIndex=w_vis, basePosition=pos, physicsClientId=self.client_id)
             self.wall_ids.append(w_id)
             
