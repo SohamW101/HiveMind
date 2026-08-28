@@ -29,3 +29,6 @@ develop-eggs/
 .vscode/
 *.swp
 *.swo
+
+# Generated reports
+smoke_test_results.txt

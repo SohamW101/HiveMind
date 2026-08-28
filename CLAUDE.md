@@ -163,7 +163,10 @@ entropy — entropy is how you show a real protocol emerged rather than noise.
 ## Conventions
 
 - Run everything from the repo root; asset paths are relative
-- `conda activate hivemind` first (`environment.yml`)
+- **No conda.** Use the repo-root `.venv` (Python 3.14, created 2026-08-28):
+  `.venv\Scripts\python.exe <script>` — there is no activate step in the documented
+  workflow. `hivemind_env` is installed editable, so imports resolve from any directory.
+  `environment.yml` is kept as an alternative for conda users but is not the path in use.
 - Regenerate shelves after changing shelf/carton geometry:
   `python hivemind_env/assets/generate_shelves.py`
 - `reset(seed=...)` seeds both `random` and `numpy`, so shelf layouts are reproducible

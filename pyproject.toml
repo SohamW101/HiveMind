@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hivemind-env"
 version = "0.1.0"
-description = "A Single-Agent PyBullet Environment for RL Foraging"
+description = "A Multi-Agent PyBullet Warehouse Environment for Emergent-Communication RL"
 authors = [
     { name = "HiveMind Team" }
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "gymnasium",
     "numpy",
