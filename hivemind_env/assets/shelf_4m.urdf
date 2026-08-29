@@ -38,7 +38,7 @@
   <joint name="shelf_1_joint" type="fixed">
     <parent link="base"/>
     <child link="shelf_1"/>
-    <origin xyz="0 0 0.3"/>
+    <origin xyz="0 0 0.18"/>
   </joint>
 
   <link name="shelf_2">
@@ -359,7 +359,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_tape_front_x">
     <visual>
@@ -368,7 +369,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_tape_rear_x">
     <visual>
@@ -377,7 +379,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_tape_top_y">
     <visual>
@@ -386,7 +389,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_tape_left_y">
     <visual>
@@ -395,7 +399,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_tape_right_y">
     <visual>
@@ -404,7 +409,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_top_seam_x">
     <visual>
@@ -413,7 +419,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_top_seam_y">
     <visual>
@@ -422,7 +429,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_corner_front_left">
     <visual>
@@ -431,7 +439,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_corner_front_right">
     <visual>
@@ -440,7 +449,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_corner_rear_left">
     <visual>
@@ -449,7 +459,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_1_corner_rear_right">
     <visual>
@@ -458,9 +469,10 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
-  <joint name="carton_1_1_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_1_carton" /><origin xyz="-1.5000 0 0.3400" /></joint><joint name="carton_1_1_tape_top_x_joint" type="fixed">
+  <joint name="carton_1_1_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_1_carton" /><origin xyz="-1.5000 0 0.2200" /></joint><joint name="carton_1_1_tape_top_x_joint" type="fixed">
     <parent link="carton_1_1_carton" />
     <child link="carton_1_1_tape_top_x" />
     <origin xyz="0 0 0.502" />
@@ -595,7 +607,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_tape_front_x">
     <visual>
@@ -604,7 +617,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_tape_rear_x">
     <visual>
@@ -613,7 +627,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_tape_top_y">
     <visual>
@@ -622,7 +637,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_tape_left_y">
     <visual>
@@ -631,7 +647,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_tape_right_y">
     <visual>
@@ -640,7 +657,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_top_seam_x">
     <visual>
@@ -649,7 +667,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_top_seam_y">
     <visual>
@@ -658,7 +677,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_corner_front_left">
     <visual>
@@ -667,7 +687,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_corner_front_right">
     <visual>
@@ -676,7 +697,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_corner_rear_left">
     <visual>
@@ -685,7 +707,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_2_corner_rear_right">
     <visual>
@@ -694,9 +717,10 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
-  <joint name="carton_1_2_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_2_carton" /><origin xyz="-0.5000 0 0.3400" /></joint><joint name="carton_1_2_tape_top_x_joint" type="fixed">
+  <joint name="carton_1_2_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_2_carton" /><origin xyz="-0.5000 0 0.2200" /></joint><joint name="carton_1_2_tape_top_x_joint" type="fixed">
     <parent link="carton_1_2_carton" />
     <child link="carton_1_2_tape_top_x" />
     <origin xyz="0 0 0.502" />
@@ -831,7 +855,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_tape_front_x">
     <visual>
@@ -840,7 +865,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_tape_rear_x">
     <visual>
@@ -849,7 +875,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_tape_top_y">
     <visual>
@@ -858,7 +885,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_tape_left_y">
     <visual>
@@ -867,7 +895,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_tape_right_y">
     <visual>
@@ -876,7 +905,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_top_seam_x">
     <visual>
@@ -885,7 +915,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_top_seam_y">
     <visual>
@@ -894,7 +925,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_corner_front_left">
     <visual>
@@ -903,7 +935,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_corner_front_right">
     <visual>
@@ -912,7 +945,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_corner_rear_left">
     <visual>
@@ -921,7 +955,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_3_corner_rear_right">
     <visual>
@@ -930,9 +965,10 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
-  <joint name="carton_1_3_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_3_carton" /><origin xyz="0.5000 0 0.3400" /></joint><joint name="carton_1_3_tape_top_x_joint" type="fixed">
+  <joint name="carton_1_3_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_3_carton" /><origin xyz="0.5000 0 0.2200" /></joint><joint name="carton_1_3_tape_top_x_joint" type="fixed">
     <parent link="carton_1_3_carton" />
     <child link="carton_1_3_tape_top_x" />
     <origin xyz="0 0 0.502" />
@@ -1067,7 +1103,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_tape_front_x">
     <visual>
@@ -1076,7 +1113,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_tape_rear_x">
     <visual>
@@ -1085,7 +1123,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_tape_top_y">
     <visual>
@@ -1094,7 +1133,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_tape_left_y">
     <visual>
@@ -1103,7 +1143,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_tape_right_y">
     <visual>
@@ -1112,7 +1153,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_top_seam_x">
     <visual>
@@ -1121,7 +1163,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_top_seam_y">
     <visual>
@@ -1130,7 +1173,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_corner_front_left">
     <visual>
@@ -1139,7 +1183,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_corner_front_right">
     <visual>
@@ -1148,7 +1193,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_corner_rear_left">
     <visual>
@@ -1157,7 +1203,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_1_4_corner_rear_right">
     <visual>
@@ -1166,9 +1213,10 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
-  <joint name="carton_1_4_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_4_carton" /><origin xyz="1.5000 0 0.3400" /></joint><joint name="carton_1_4_tape_top_x_joint" type="fixed">
+  <joint name="carton_1_4_mount_joint" type="fixed"><parent link="base" /><child link="carton_1_4_carton" /><origin xyz="1.5000 0 0.2200" /></joint><joint name="carton_1_4_tape_top_x_joint" type="fixed">
     <parent link="carton_1_4_carton" />
     <child link="carton_1_4_tape_top_x" />
     <origin xyz="0 0 0.502" />
@@ -1303,7 +1351,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_tape_front_x">
     <visual>
@@ -1312,7 +1361,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_tape_rear_x">
     <visual>
@@ -1321,7 +1371,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_tape_top_y">
     <visual>
@@ -1330,7 +1381,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_tape_left_y">
     <visual>
@@ -1339,7 +1391,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_tape_right_y">
     <visual>
@@ -1348,7 +1401,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_top_seam_x">
     <visual>
@@ -1357,7 +1411,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_top_seam_y">
     <visual>
@@ -1366,7 +1421,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_corner_front_left">
     <visual>
@@ -1375,7 +1431,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_corner_front_right">
     <visual>
@@ -1384,7 +1441,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_corner_rear_left">
     <visual>
@@ -1393,7 +1451,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_1_corner_rear_right">
     <visual>
@@ -1402,7 +1461,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <joint name="carton_2_1_mount_joint" type="fixed"><parent link="base" /><child link="carton_2_1_carton" /><origin xyz="-1.5000 0 1.0400" /></joint><joint name="carton_2_1_tape_top_x_joint" type="fixed">
     <parent link="carton_2_1_carton" />
@@ -1539,7 +1599,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_tape_front_x">
     <visual>
@@ -1548,7 +1609,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_tape_rear_x">
     <visual>
@@ -1557,7 +1619,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_tape_top_y">
     <visual>
@@ -1566,7 +1629,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_tape_left_y">
     <visual>
@@ -1575,7 +1639,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_tape_right_y">
     <visual>
@@ -1584,7 +1649,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_top_seam_x">
     <visual>
@@ -1593,7 +1659,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_top_seam_y">
     <visual>
@@ -1602,7 +1669,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_corner_front_left">
     <visual>
@@ -1611,7 +1679,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_corner_front_right">
     <visual>
@@ -1620,7 +1689,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_corner_rear_left">
     <visual>
@@ -1629,7 +1699,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_2_corner_rear_right">
     <visual>
@@ -1638,7 +1709,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <joint name="carton_2_2_mount_joint" type="fixed"><parent link="base" /><child link="carton_2_2_carton" /><origin xyz="-0.5000 0 1.0400" /></joint><joint name="carton_2_2_tape_top_x_joint" type="fixed">
     <parent link="carton_2_2_carton" />
@@ -1775,7 +1847,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_tape_front_x">
     <visual>
@@ -1784,7 +1857,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_tape_rear_x">
     <visual>
@@ -1793,7 +1867,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_tape_top_y">
     <visual>
@@ -1802,7 +1877,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_tape_left_y">
     <visual>
@@ -1811,7 +1887,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_tape_right_y">
     <visual>
@@ -1820,7 +1897,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_top_seam_x">
     <visual>
@@ -1829,7 +1907,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_top_seam_y">
     <visual>
@@ -1838,7 +1917,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_corner_front_left">
     <visual>
@@ -1847,7 +1927,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_corner_front_right">
     <visual>
@@ -1856,7 +1937,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_corner_rear_left">
     <visual>
@@ -1865,7 +1947,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_3_corner_rear_right">
     <visual>
@@ -1874,7 +1957,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <joint name="carton_2_3_mount_joint" type="fixed"><parent link="base" /><child link="carton_2_3_carton" /><origin xyz="0.5000 0 1.0400" /></joint><joint name="carton_2_3_tape_top_x_joint" type="fixed">
     <parent link="carton_2_3_carton" />
@@ -2011,7 +2095,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_tape_front_x">
     <visual>
@@ -2020,7 +2105,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_tape_rear_x">
     <visual>
@@ -2029,7 +2115,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_tape_top_y">
     <visual>
@@ -2038,7 +2125,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_tape_left_y">
     <visual>
@@ -2047,7 +2135,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_tape_right_y">
     <visual>
@@ -2056,7 +2145,8 @@
       </geometry>
       <material name="tape" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_top_seam_x">
     <visual>
@@ -2065,7 +2155,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_top_seam_y">
     <visual>
@@ -2074,7 +2165,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_corner_front_left">
     <visual>
@@ -2083,7 +2175,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_corner_front_right">
     <visual>
@@ -2092,7 +2185,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_corner_rear_left">
     <visual>
@@ -2101,7 +2195,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <link name="carton_2_4_corner_rear_right">
     <visual>
@@ -2110,7 +2205,8 @@
       </geometry>
       <material name="seam" />
     </visual>
-  <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial></link>
+    <inertial><mass value="0" /><inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" /></inertial>
+  </link>
 
   <joint name="carton_2_4_mount_joint" type="fixed"><parent link="base" /><child link="carton_2_4_carton" /><origin xyz="1.5000 0 1.0400" /></joint><joint name="carton_2_4_tape_top_x_joint" type="fixed">
     <parent link="carton_2_4_carton" />

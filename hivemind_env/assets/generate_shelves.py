@@ -2,6 +2,22 @@ import copy
 import os
 import xml.etree.ElementTree as ET
 
+# Shelf plate heights, in metres, bottom-up. Plates are 0.08 thick, so the bottom one
+# spans SHELF_HEIGHTS[0] +/- 0.04.
+#
+# The bottom plate was at 0.30 (spanning 0.26 - 0.34) until 2026-08-29. The robot
+# chassis tops out at 0.194 and the wheels at 0.210, so nothing ever touched: robots
+# drove straight under the shelving and aisles did not constrain routing at all. The
+# corner posts do reach the floor, but they sit at 1 m spacing on the cell corners,
+# which is exactly where a grid-centred robot is not.
+#
+# Lowering the bottom plate to 0.18 makes it span 0.14 - 0.22, overlapping both the
+# chassis and the wheels by ~5 cm, so a robot entering a shelf cell generates real
+# contacts and pays the collision penalty. Cartons stocked on that plate move down with
+# it - add_cartons() reads the same list, so the two cannot drift apart.
+SHELF_HEIGHTS = [0.18, 1.0, 1.8]
+CARTON_SHELF_HEIGHTS = SHELF_HEIGHTS[:2]  # top shelf is left empty
+
 
 def add_cartons(urdf, length_m, carton_filepath):
   carton_root = ET.parse(carton_filepath).getroot()
@@ -9,7 +25,7 @@ def add_cartons(urdf, length_m, carton_filepath):
   for material in carton_root.findall("material"):
     urdf += ET.tostring(material, encoding="unicode")
 
-  shelf_heights = [0.3, 1.0]
+  shelf_heights = CARTON_SHELF_HEIGHTS
   bay_centers = [-length_m / 2.0 + 0.5 + bay for bay in range(length_m)]
   for shelf_index, shelf_height in enumerate(shelf_heights, start=1):
     for bay_index, bay_center in enumerate(bay_centers, start=1):
@@ -79,7 +95,7 @@ def generate_shelf_urdf(length_m, filepath, carton_filepath):
 """
     
     # Add 3 shelves
-    heights = [0.3, 1.0, 1.8]
+    heights = SHELF_HEIGHTS
     for i, h in enumerate(heights):
         urdf += f"""
   <link name="shelf_{i+1}">
