@@ -1277,5 +1277,21 @@ class HiveMindMultiAgentEnv(gym.Env):
         pass
 
     def close(self):
-        if hasattr(self, 'client_id'):
-            pb.disconnect(physicsClientId=self.client_id)
+        """
+        Disconnect from the physics server. Safe to call more than once.
+
+        The guard is not decoration: a second call used to raise
+        pybullet.error("Not connected to physics server."). That was a harmless nuisance
+        while everything ran in one process, but a vectorised env closes its workers on
+        teardown *and* again from __del__ during interpreter shutdown, where the second
+        exception surfaces as a confusing traceback that hides whatever actually went
+        wrong.
+        """
+        if getattr(self, "_closed", False):
+            return
+        if hasattr(self, "client_id"):
+            try:
+                pb.disconnect(physicsClientId=self.client_id)
+            except pb.error:
+                pass  # already gone - nothing to release
+        self._closed = True

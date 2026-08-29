@@ -241,10 +241,15 @@ every robot in every world.
 .venv\Scripts\python.exe train.py --timesteps 5000000 --worlds 8
 ```
 
-Throughput is roughly 65 robot-steps/s, or 34/s with PPO updates included, so a 2M-step
-run is around 16 hours. The 30 physics substeps per environment step dominate — the LiDAR
-sweep is only about 4 ms of a 61 ms step. Note that `--worlds` increases batch diversity
-but **not** throughput: worlds are stepped sequentially in one process.
+Each warehouse runs in its own process by default (`--backend subproc`), because 95% of
+training time is single-threaded PyBullet physics — a faster GPU only touches the ~4%
+spent on the policy update. On a 16-thread machine, 12 workers measured **133 robot-steps/s
+end to end against 34/s in-process**, so a 2M-step run drops from roughly 16 hours to
+about 4. Use `--backend inprocess` when debugging: a traceback inside a worker is much
+harder to read.
+
+Once the environment is parallelised the update becomes a much larger share of the run
+(~40% rather than ~4%), so a CUDA GPU is worth having *after* this change, not before.
 
 TensorBoard is optional. If it is not installed, training runs and simply writes no
 curves rather than failing.
