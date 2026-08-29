@@ -24,8 +24,8 @@ solid obstacles that cost `-5.0` on contact, and ends episodes on completion or 
 limit. `train.py` trains a shared policy across all four robots and the saved checkpoint
 loads back into the evaluation harness.
 
-**No result has been measured yet.** The greedy baseline (roadmap step 5) does not exist,
-and without it a reward curve says nothing about whether a policy is any good.
+**The greedy baseline is the number to beat: makespan 98, 100% completion over 30 fixed
+seeds.** No learned policy has been run against it yet, so no policy result exists.
 
 The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
 `scripts/run_evaluation.py` are ported and adapted for four agents, but they cannot train
@@ -207,6 +207,26 @@ and its breakdown every step, then verifies each term against the spec:
 .venv\Scripts\python.exe scripts/verify_rewards.py
 ```
 
+## Greedy baseline
+
+A scripted controller — each robot claims the nearest unclaimed carton, delivers it, and
+repeats. Its makespan is the reference every learned policy is quoted against, and it is
+scored through the same harness, seeds and metrics as a policy so the comparison is
+valid.
+
+```powershell
+.venv\Scripts\python.exe scripts/run_evaluation.py --baseline greedy --episodes 30
+```
+
+| Metric | Value |
+| --- | --- |
+| Makespan | mean 97.6, median 96.5, range 82–123 |
+| Completion | 30/30 seeds |
+| Distance | 230.9 m per episode |
+| Collisions | 6.3 per episode |
+
+Results are written to `docs_analysis/greedy_baseline.json`.
+
 ## Training
 
 All four robots share one set of weights. `HiveMindSharedPolicyVecEnv` presents each
@@ -249,6 +269,7 @@ explains what that trade buys and when to replace it.
 │   └── verify_rewards.py       Prints reward per step and checks it against the spec
 └── hivemind_env/
     ├── env.py                  Gymnasium environment and warehouse generation
+    ├── greedy.py               Scripted baseline controller; the makespan to beat
     ├── vec_env.py              4 robots -> 4 policy slots sharing one set of weights
     ├── models.py               HiveMindExtractor: MLP + 1-D CNN over the LiDAR sweep
     ├── training.py             Shared scaffolding: curriculum callback, LR schedules,

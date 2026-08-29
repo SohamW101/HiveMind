@@ -1,0 +1,584 @@
+{
+  "model": null,
+  "policy_mode": "greedy",
+  "num_agents": 4,
+  "obs_dim": 177,
+  "episodes_per_level": 30,
+  "date": "2026-08-30",
+  "observations_implemented": true,
+  "overall_completion_rate": 1.0,
+  "total_episodes": 30,
+  "levels": {
+    "1": {
+      "difficulty": 1,
+      "label": "4 cartons, 4 robots, randomised shelf gaps",
+      "num_episodes": 30,
+      "completion_rate": 1.0,
+      "completion_ci95": [
+        0.8865,
+        1.0
+      ],
+      "avg_makespan": 97.6,
+      "median_makespan": 96.5,
+      "min_makespan": 82,
+      "max_makespan": 123,
+      "avg_delivered_fraction": 1.0,
+      "avg_distance": 230.9,
+      "avg_collisions": 6.3,
+      "avg_steps": 97.6,
+      "avg_reward_total": 835.71,
+      "std_reward_total": 39.34,
+      "action_distribution": {
+        "Forward": 5330,
+        "Backward": 1572,
+        "Turn Left": 940,
+        "Turn Right": 663,
+        "Pick Up": 360,
+        "Drop Off": 360,
+        "Stay": 2487
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "seed": 1000,
+          "outcome": "COMPLETE",
+          "makespan": 95,
+          "steps": 95,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 233.01,
+          "collisions": 10,
+          "reward_total": 769.8,
+          "reward_per_agent": [
+            192.46,
+            192.45,
+            192.45,
+            192.44
+          ]
+        },
+        {
+          "episode": 2,
+          "seed": 1001,
+          "outcome": "COMPLETE",
+          "makespan": 96,
+          "steps": 96,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 244.97,
+          "collisions": 9,
+          "reward_total": 787.56,
+          "reward_per_agent": [
+            196.9,
+            196.9,
+            196.88,
+            196.88
+          ]
+        },
+        {
+          "episode": 3,
+          "seed": 1002,
+          "outcome": "COMPLETE",
+          "makespan": 93,
+          "steps": 93,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 218.87,
+          "collisions": 2,
+          "reward_total": 914.35,
+          "reward_per_agent": [
+            228.9,
+            228.6,
+            228.57,
+            228.27
+          ]
+        },
+        {
+          "episode": 4,
+          "seed": 1003,
+          "outcome": "COMPLETE",
+          "makespan": 93,
+          "steps": 93,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 232.62,
+          "collisions": 4,
+          "reward_total": 878.36,
+          "reward_per_agent": [
+            219.59,
+            219.89,
+            219.59,
+            219.29
+          ]
+        },
+        {
+          "episode": 5,
+          "seed": 1004,
+          "outcome": "COMPLETE",
+          "makespan": 89,
+          "steps": 89,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 215.02,
+          "collisions": 7,
+          "reward_total": 825.44,
+          "reward_per_agent": [
+            206.37,
+            206.35,
+            206.37,
+            206.35
+          ]
+        },
+        {
+          "episode": 6,
+          "seed": 1005,
+          "outcome": "COMPLETE",
+          "makespan": 99,
+          "steps": 99,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 244.98,
+          "collisions": 9,
+          "reward_total": 786.75,
+          "reward_per_agent": [
+            196.7,
+            196.7,
+            196.67,
+            196.68
+          ]
+        },
+        {
+          "episode": 7,
+          "seed": 1006,
+          "outcome": "COMPLETE",
+          "makespan": 88,
+          "steps": 88,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 232.68,
+          "collisions": 6,
+          "reward_total": 843.72,
+          "reward_per_agent": [
+            211.24,
+            210.94,
+            210.91,
+            210.63
+          ]
+        },
+        {
+          "episode": 8,
+          "seed": 1007,
+          "outcome": "COMPLETE",
+          "makespan": 82,
+          "steps": 82,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 202.8,
+          "collisions": 4,
+          "reward_total": 881.33,
+          "reward_per_agent": [
+            220.32,
+            220.34,
+            220.34,
+            220.32
+          ]
+        },
+        {
+          "episode": 9,
+          "seed": 1008,
+          "outcome": "COMPLETE",
+          "makespan": 98,
+          "steps": 98,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 221.03,
+          "collisions": 6,
+          "reward_total": 841.01,
+          "reward_per_agent": [
+            210.26,
+            210.25,
+            210.25,
+            210.24
+          ]
+        },
+        {
+          "episode": 10,
+          "seed": 1009,
+          "outcome": "COMPLETE",
+          "makespan": 93,
+          "steps": 93,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 224.62,
+          "collisions": 5,
+          "reward_total": 860.39,
+          "reward_per_agent": [
+            215.39,
+            215.1,
+            215.09,
+            214.8
+          ]
+        },
+        {
+          "episode": 11,
+          "seed": 1010,
+          "outcome": "COMPLETE",
+          "makespan": 87,
+          "steps": 87,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 228.78,
+          "collisions": 8,
+          "reward_total": 807.99,
+          "reward_per_agent": [
+            202.3,
+            201.99,
+            201.7,
+            202.0
+          ]
+        },
+        {
+          "episode": 12,
+          "seed": 1011,
+          "outcome": "COMPLETE",
+          "makespan": 95,
+          "steps": 95,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 230.85,
+          "collisions": 5,
+          "reward_total": 859.81,
+          "reward_per_agent": [
+            215.25,
+            214.94,
+            214.96,
+            214.66
+          ]
+        },
+        {
+          "episode": 13,
+          "seed": 1012,
+          "outcome": "COMPLETE",
+          "makespan": 95,
+          "steps": 95,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 220.81,
+          "collisions": 4,
+          "reward_total": 877.81,
+          "reward_per_agent": [
+            219.45,
+            219.46,
+            219.46,
+            219.44
+          ]
+        },
+        {
+          "episode": 14,
+          "seed": 1013,
+          "outcome": "COMPLETE",
+          "makespan": 103,
+          "steps": 103,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 244.86,
+          "collisions": 9,
+          "reward_total": 785.66,
+          "reward_per_agent": [
+            196.43,
+            196.41,
+            196.42,
+            196.4
+          ]
+        },
+        {
+          "episode": 15,
+          "seed": 1014,
+          "outcome": "COMPLETE",
+          "makespan": 100,
+          "steps": 100,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 218.88,
+          "collisions": 3,
+          "reward_total": 894.46,
+          "reward_per_agent": [
+            223.63,
+            223.62,
+            223.6,
+            223.6
+          ]
+        },
+        {
+          "episode": 16,
+          "seed": 1015,
+          "outcome": "COMPLETE",
+          "makespan": 89,
+          "steps": 89,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 224.64,
+          "collisions": 6,
+          "reward_total": 843.46,
+          "reward_per_agent": [
+            211.16,
+            210.56,
+            210.86,
+            210.87
+          ]
+        },
+        {
+          "episode": 17,
+          "seed": 1016,
+          "outcome": "COMPLETE",
+          "makespan": 111,
+          "steps": 111,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 247.03,
+          "collisions": 6,
+          "reward_total": 837.48,
+          "reward_per_agent": [
+            209.38,
+            209.38,
+            209.36,
+            209.35
+          ]
+        },
+        {
+          "episode": 18,
+          "seed": 1017,
+          "outcome": "COMPLETE",
+          "makespan": 97,
+          "steps": 97,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 217.07,
+          "collisions": 10,
+          "reward_total": 769.28,
+          "reward_per_agent": [
+            192.33,
+            192.61,
+            192.03,
+            192.3
+          ]
+        },
+        {
+          "episode": 19,
+          "seed": 1018,
+          "outcome": "COMPLETE",
+          "makespan": 98,
+          "steps": 98,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 238.84,
+          "collisions": 5,
+          "reward_total": 858.99,
+          "reward_per_agent": [
+            214.76,
+            214.76,
+            214.74,
+            214.73
+          ]
+        },
+        {
+          "episode": 20,
+          "seed": 1019,
+          "outcome": "COMPLETE",
+          "makespan": 111,
+          "steps": 111,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 232.67,
+          "collisions": 4,
+          "reward_total": 873.49,
+          "reward_per_agent": [
+            218.38,
+            218.39,
+            218.37,
+            218.35
+          ]
+        },
+        {
+          "episode": 21,
+          "seed": 1020,
+          "outcome": "COMPLETE",
+          "makespan": 102,
+          "steps": 102,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 238.96,
+          "collisions": 8,
+          "reward_total": 803.93,
+          "reward_per_agent": [
+            201.0,
+            200.99,
+            200.97,
+            200.97
+          ]
+        },
+        {
+          "episode": 22,
+          "seed": 1021,
+          "outcome": "COMPLETE",
+          "makespan": 94,
+          "steps": 94,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 226.67,
+          "collisions": 7,
+          "reward_total": 824.08,
+          "reward_per_agent": [
+            206.04,
+            206.03,
+            206.0,
+            206.01
+          ]
+        },
+        {
+          "episode": 23,
+          "seed": 1022,
+          "outcome": "COMPLETE",
+          "makespan": 101,
+          "steps": 101,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 231.11,
+          "collisions": 7,
+          "reward_total": 822.19,
+          "reward_per_agent": [
+            205.56,
+            205.55,
+            205.53,
+            205.54
+          ]
+        },
+        {
+          "episode": 24,
+          "seed": 1023,
+          "outcome": "COMPLETE",
+          "makespan": 107,
+          "steps": 107,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 249.1,
+          "collisions": 9,
+          "reward_total": 784.55,
+          "reward_per_agent": [
+            196.16,
+            196.15,
+            196.12,
+            196.12
+          ]
+        },
+        {
+          "episode": 25,
+          "seed": 1024,
+          "outcome": "COMPLETE",
+          "makespan": 102,
+          "steps": 102,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 230.82,
+          "collisions": 5,
+          "reward_total": 857.9,
+          "reward_per_agent": [
+            214.49,
+            214.45,
+            214.49,
+            214.46
+          ]
+        },
+        {
+          "episode": 26,
+          "seed": 1025,
+          "outcome": "COMPLETE",
+          "makespan": 86,
+          "steps": 86,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 208.81,
+          "collisions": 10,
+          "reward_total": 772.22,
+          "reward_per_agent": [
+            193.37,
+            193.05,
+            193.05,
+            192.75
+          ]
+        },
+        {
+          "episode": 27,
+          "seed": 1026,
+          "outcome": "COMPLETE",
+          "makespan": 101,
+          "steps": 101,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 222.65,
+          "collisions": 5,
+          "reward_total": 858.19,
+          "reward_per_agent": [
+            214.55,
+            214.56,
+            214.55,
+            214.53
+          ]
+        },
+        {
+          "episode": 28,
+          "seed": 1027,
+          "outcome": "COMPLETE",
+          "makespan": 95,
+          "steps": 95,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 222.81,
+          "collisions": 5,
+          "reward_total": 859.83,
+          "reward_per_agent": [
+            214.96,
+            214.96,
+            214.95,
+            214.97
+          ]
+        },
+        {
+          "episode": 29,
+          "seed": 1028,
+          "outcome": "COMPLETE",
+          "makespan": 123,
+          "steps": 123,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 286.81,
+          "collisions": 4,
+          "reward_total": 870.24,
+          "reward_per_agent": [
+            217.58,
+            217.56,
+            217.57,
+            217.53
+          ]
+        },
+        {
+          "episode": 30,
+          "seed": 1029,
+          "outcome": "COMPLETE",
+          "makespan": 105,
+          "steps": 105,
+          "delivered": 12,
+          "cartons": 12,
+          "distance": 234.87,
+          "collisions": 7,
+          "reward_total": 821.13,
+          "reward_per_agent": [
+            205.29,
+            205.29,
+            205.28,
+            205.27
+          ]
+        }
+      ]
+    }
+  }
+}

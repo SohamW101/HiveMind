@@ -212,6 +212,35 @@ except ImportError as e:
 except Exception as e:
     emit(f"FAIL: extractor build: {type(e).__name__}: {e}")
 
+# -- Greedy baseline ------------------------------------------------------------
+# One seeded episode of the scripted controller. This is a real end-to-end exercise of
+# navigation, pickup, delivery, termination and the reward split, and it guards the
+# reference makespan: if a change makes greedy stop completing, every published number
+# that was quoted against it is invalid.
+try:
+    from hivemind_env.greedy import GreedyController
+    genv = HiveMindMultiAgentEnv(render_mode=None)
+    genv.reset(seed=1000)
+    ctrl = GreedyController(genv)
+    term = False
+    for _ in range(genv.max_steps):
+        _, _, term, trunc, ginfo = genv.step(ctrl.act())
+        ctrl.sync_after_step()
+        if term or trunc:
+            break
+    steps = genv.current_step
+    genv.close()
+    if term and ginfo["delivered"] == 12:
+        emit(f"PASS: greedy baseline completes seed 1000 in {steps} steps "
+             f"(reference mean is 98)")
+        if steps > 150:
+            emit(f"FAIL: greedy took {steps} steps, far above the ~98 reference - "
+                 f"something regressed")
+    else:
+        emit(f"FAIL: greedy delivered {ginfo['delivered']}/12 in {steps} steps")
+except Exception as e:
+    emit(f"FAIL: greedy baseline: {type(e).__name__}: {e}")
+
 # -- Scaffolding sanity ---------------------------------------------------------
 try:
     assert linear_schedule(3e-4)(1.0) == 3e-4

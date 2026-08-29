@@ -45,6 +45,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
+from hivemind_env.greedy import GreedyController
 from hivemind_env.training import (
     CURRICULUM_CARTONS,
     NUM_AGENTS,
@@ -113,11 +114,18 @@ def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start
       joint  : one policy whose action space is already MultiDiscrete([7]*4, e.g. a
                dedicated MAPPO implementation. Queried once.
       random : no model; samples the action space. Exercises the harness itself.
+      greedy : no model; the scripted controller from hivemind_env.greedy. This is
+               the baseline a learned policy has to beat, and it is deliberately
+               scored through THIS harness rather than its own script - same seeds,
+               same metrics, same makespan definition. A baseline measured a
+               different way is not a comparison.
 
     Returns (action, lstm_states).
     """
     if policy_mode == "random":
         return action_space.sample(), None
+    if policy_mode == "greedy":
+        return np.asarray(model.act(), dtype=int), None
 
     def _predict(single_obs, state):
         if recurrent:
@@ -176,6 +184,11 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         lstm_states = None
         episode_start = True
 
+        # The greedy controller is stateful per episode: it captures the shelf map and
+        # carton slots at reset, and it is handed to _joint_action in place of a model.
+        controller = GreedyController(env) if policy_mode == "greedy" else None
+        actor = controller if controller is not None else model
+
         # PORT NOTE: per-agent reward sums replace the single scalar. The 90/10 split
         # (CLAUDE.md step 4) gives each robot a different total for the same shared
         # outcome, and the spread across robots is itself a signal about role division.
@@ -190,7 +203,7 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
 
         while True:
             action, lstm_states = _joint_action(
-                model, obs, policy_mode, recurrent, lstm_states, episode_start,
+                actor, obs, policy_mode, recurrent, lstm_states, episode_start,
                 env.action_space,
             )
             episode_start = False
@@ -200,6 +213,9 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
             steps += 1
             for a in np.asarray(action).reshape(-1):
                 action_counts[int(a)] += 1
+
+            if controller is not None:
+                controller.sync_after_step()
 
             distance += _distance_travelled(prev_positions, info["robot_pos"])
             prev_positions = list(info["robot_pos"])
@@ -267,7 +283,7 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
 
 
 def _load_model(path, policy_mode):
-    if policy_mode == "random":
+    if policy_mode in ("random", "greedy"):
         return None, False
     try:
         # SB3 unpickles the feature extractor by name, so the module must be importable
@@ -285,9 +301,11 @@ def main():
     )
     parser.add_argument("--model", default=None,
                         help="Path to a saved SB3 policy. Omit and pass --baseline instead.")
-    parser.add_argument("--baseline", choices=["random"], default=None,
-                        help="Run without a model. 'random' samples the action space - "
-                             "useful for checking the harness itself.")
+    parser.add_argument("--baseline", choices=["random", "greedy"], default=None,
+                        help="Run without a learned model. 'greedy' is the scripted "
+                             "controller whose makespan every policy is quoted against "
+                             "(roadmap step 5). 'random' samples the action space and "
+                             "only exercises the harness.")
     parser.add_argument("--policy-mode", choices=["shared", "joint"], default="shared",
                         help="shared: one Discrete(7) policy queried per robot (roadmap "
                              "step 6 default). joint: one MultiDiscrete policy.")
@@ -339,6 +357,9 @@ def main():
         print(f"  Model      : {args.model} ({os.path.getsize(args.model)/1024/1024:.1f} MB)")
     else:
         print(f"  Model      : none - {args.baseline} baseline")
+    if args.baseline == "greedy":
+        print("  Note       : this run produces THE reference makespan. Every later "
+              "policy\n               result should be quoted against it.")
     print(f"  Policy mode: {policy_mode}")
     print(f"  Agents     : {NUM_AGENTS}")
     print(f"  Episodes   : {args.episodes} per level (fixed seeds, reproducible)")
