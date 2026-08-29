@@ -17,12 +17,15 @@ A Gymnasium environment built with PyBullet for experimenting with robot navigat
 - The lidar starts at its initial height and raises to 0.5 m while a carton is carried.
 - Pickup and drop are implemented as environment actions.
 
-The repository is currently a simulation and environment prototype: the world is built,
-the learning system is not. Specifically, `_get_obs()` returns an empty list and no
-`observation_space` is declared, rewards are hard-coded `[0, 0, 0, 0]`, `terminated` and
-`truncated` are hard-coded `False` (so the 2000-step limit is not enforced by the env),
-there is no LiDAR ray-casting or collision detection, and `train.py` and
-`hivemind_env/models.py` are empty placeholders.
+The environment is a complete RL problem and the training pipeline runs end to end. It
+reports a pinned 177-float observation including a 72-ray LiDAR sweep, pays the reward
+structure from `MAWC_Technical_Specification.pdf` §3, treats shelves and other robots as
+solid obstacles that cost `-5.0` on contact, and ends episodes on completion or the step
+limit. `train.py` trains a shared policy across all four robots and the saved checkpoint
+loads back into the evaluation harness.
+
+**No result has been measured yet.** The greedy baseline (roadmap step 5) does not exist,
+and without it a reward curve says nothing about whether a policy is any good.
 
 The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
 `scripts/run_evaluation.py` are ported and adapted for four agents, but they cannot train
@@ -114,9 +117,10 @@ finally:
     env.close()
 ```
 
-On the current code that yields `observation == []`, `reward == [0, 0, 0, 0]`,
-`terminated is False`, `truncated is False`, and
-`info == {"robot_pos": [...4 (x, y, z) tuples...], "remaining_resources": 12}`.
+On the current code that yields a `(4, 105)` float32 `observation`, four per-agent
+rewards, `terminated`/`truncated` flags, and an `info` dict carrying robot positions,
+remaining resources, delivery count, collisions, per-agent pickup/delivery/invalid-action
+flags, and a full `reward_breakdown`.
 Note that `env.close()` is not yet idempotent -- a second call raises
 `pybullet.error("Not connected to physics server.")`.
 
@@ -135,9 +139,98 @@ The environment uses a four-element `MultiDiscrete` action space. One action is 
 | `6` | Stay in place |
 
 Each action is executed with physics substeps for smooth motion. The environment returns
-an observation placeholder (an empty list), a per-agent reward list, termination flags,
-and an info dictionary containing robot positions and the number of remaining resources.
-Observations, rewards and termination are roadmap steps 3 and 4 in `CLAUDE.md`.
+an observation, a per-agent reward list, termination flags, and an info dictionary
+carrying robot positions, remaining resources, delivery count and the observation width.
+
+### Observation
+
+`observation_space` is `Box(-1.0, 1.0, (4, 177), float32)` — one row per robot, every
+value normalised into `[-1, 1]`. **The width is pinned at 177 and must not change**: it is
+baked into a trained policy's input layer, so moving it invalidates every saved
+checkpoint. Adding a component means a new `OBS_DIM_V4`, never an edit to V3.
+
+| slice | size | component |
+| --- | --- | --- |
+| `[ 0: 3]` | 3 | own pose (x, y, heading) |
+| `[ 3: 5]` | 2 | own velocity, cells per step |
+| `[ 5: 6]` | 1 | own carrying flag |
+| `[ 6:15]` | 9 | other robots' poses |
+| `[15:18]` | 3 | other robots' carrying flags |
+| `[18:30]` | 12 | carton status (available / mine / other's / delivered) |
+| `[30:54]` | 24 | carton positions — 12 × (x, y), same index as the status slots |
+| `[54:56]` | 2 | depot direction |
+| `[56:57]` | 1 | elapsed time |
+| `[57:129]` | 72 | LiDAR — 270° arc, 0.1–10 m, Gaussian noise |
+| `[129:177]` | 48 | message slots — reserved, all zero until communication lands |
+
+The message slots are reserved now precisely so that adding communication later does not
+change the width. The full component table, the encoding of each field and the reasoning
+behind every choice live at the top of `hivemind_env/env.py`.
+
+Check it end to end — this drives a robot through a full pickup and delivery and verifies
+each component against PyBullet ground truth:
+
+```powershell
+.venv\Scripts\python.exe scripts/verify_observations.py
+```
+
+### Rewards
+
+Transcribed from `MAWC_Technical_Specification.pdf` §3. Shared rewards (90% weight) are
+identical for all four agents; individual rewards (10%) are per agent.
+
+| Scope | Event | Reward |
+| --- | --- | --- |
+| Shared | All 12 delivered | `+100.0` once per episode |
+| Shared | Per delivery (any bot) | `+10.0` |
+| Shared | Makespan bonus | `+50 × (T_max − T_actual) / T_max`, once per episode |
+| Shared | Collision (any robot pair) | `−5.0` per event |
+| Shared | Time | `−0.05` per step |
+| Individual | Own pickup | `+1.0` |
+| Individual | Own delivery | `+2.0` |
+| Individual | Idle (not moving, not at depot) | `−0.02` per step |
+| Individual | Invalid action | `−0.5` |
+
+`R_total_i = 0.90 × R_shared + 0.10 × R_individual_i`
+
+An episode `terminated`s when all 12 cartons are delivered and `truncated`s at
+`max_steps` (2000). `T_max` is `max_steps` — this environment counts steps, not seconds.
+
+The spec's replanning penalty is **not** implemented: it fires when A* re-runs, and this
+environment has no planner (see `CLAUDE.md`, decision 3). The constant is defined and
+left unused so the omission is visible.
+
+Check it end to end — this drives a robot through a full delivery, printing the reward
+and its breakdown every step, then verifies each term against the spec:
+
+```powershell
+.venv\Scripts\python.exe scripts/verify_rewards.py
+```
+
+## Training
+
+All four robots share one set of weights. `HiveMindSharedPolicyVecEnv` presents each
+four-robot world as four policy-facing slots, so PPO trains on the pooled experience of
+every robot in every world.
+
+```powershell
+# smoke run - ~4k steps, exercises the whole pipeline in about two minutes
+.venv\Scripts\python.exe train.py --smoke
+
+# a real run
+.venv\Scripts\python.exe train.py --timesteps 5000000 --worlds 8
+```
+
+Throughput is roughly 65 robot-steps/s, or 34/s with PPO updates included, so a 2M-step
+run is around 16 hours. The 30 physics substeps per environment step dominate — the LiDAR
+sweep is only about 4 ms of a 61 ms step. Note that `--worlds` increases batch diversity
+but **not** throughput: worlds are stepped sequentially in one process.
+
+TensorBoard is optional. If it is not installed, training runs and simply writes no
+curves rather than failing.
+
+This is parameter sharing with a decentralised critic, not MAPPO — `hivemind_env/vec_env.py`
+explains what that trade buys and when to replace it.
 
 ## Files And Assets
 
@@ -149,12 +242,15 @@ Observations, rewards and termination are roadmap steps 3 and 4 in `CLAUDE.md`.
 ├── CLAUDE.md                   Decisions already made, current state, and the roadmap
 ├── play_multi.py               Single-bot navigation, pickup, and depot-drop demo
 ├── smoke_test.py               Import / device / reset / step check; PASS-TODO-FAIL report
-├── train.py                    Reserved for a future training pipeline; currently empty
+├── train.py                    Shared-policy PPO training entry point
 ├── scripts/
-│   └── run_evaluation.py       Fixed-seed evaluation harness; makespan is the headline
+│   ├── run_evaluation.py       Fixed-seed evaluation harness; makespan is the headline
+│   ├── verify_observations.py  Drives a full delivery, checking every observation field
+│   └── verify_rewards.py       Prints reward per step and checks it against the spec
 └── hivemind_env/
     ├── env.py                  Gymnasium environment and warehouse generation
-    ├── models.py               Reserved model module; currently empty
+    ├── vec_env.py              4 robots -> 4 policy slots sharing one set of weights
+    ├── models.py               HiveMindExtractor: MLP + 1-D CNN over the LiDAR sweep
     ├── training.py             Shared scaffolding: curriculum callback, LR schedules,
     │                           env factory, device probe, version-safe policy loader
     └── assets/
