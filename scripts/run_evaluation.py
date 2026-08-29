@@ -21,10 +21,9 @@ WHAT CHANGED IN THE PORT (each site is marked "PORT NOTE"):
   - --baseline runs the harness with a random policy and no model, so the harness itself
     is testable before step 6 produces anything to load
 
-STATUS: needs roadmap steps 3 and 4 (observations, rewards, termination). Until those
-land, `--baseline random` runs end to end but every episode times out with reward 0, and
-`--model` cannot work at all because there is no observation to feed a policy. The script
-says so explicitly rather than producing meaningless numbers.
+STATUS: roadmap steps 3 and 4 have landed, so episodes now end on their own and rewards
+are real. What is still missing is a policy to evaluate (step 6) and the greedy baseline
+(step 5) that gives the makespan number meaning.
 
 Usage:
     .venv\\Scripts\\python.exe scripts/run_evaluation.py --baseline random --episodes 5
@@ -45,19 +44,18 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from hivemind_env.env import HiveMindMultiAgentEnv
+from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
 from hivemind_env.training import (
     CURRICULUM_CARTONS,
-    DEFAULT_OBS_SIZE,
     NUM_AGENTS,
     SUCCESS_REWARD_THRESHOLD,
     load_policy,
 )
 
-# PORT NOTE: `from hivemind_env.models import CustomCombinedExtractor  # SB3 unpickles by
-# name` was unconditional at import time. models.py is a 0-byte placeholder on this
-# branch, so it is imported lazily inside _load_model() and only when a model is actually
-# being loaded.
+# PORT NOTE: the single-agent branch imported its feature extractor at module scope
+# because SB3 unpickles it by name. models.py was empty when this file was ported, so the
+# import moved into _load_model(). It stays there: evaluation of a --baseline run should
+# not need the network module at all.
 
 ACTION_NAMES = ["Forward", "Backward", "Turn Left", "Turn Right", "Pick Up", "Drop Off", "Stay"]
 
@@ -152,10 +150,10 @@ def _distance_travelled(prev_positions, positions):
     return total
 
 
-def evaluate_level(model, difficulty, num_episodes, obs_size, recurrent, policy_mode,
+def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_mode,
                    max_steps=None, verbose=True):
     env = HiveMindMultiAgentEnv(
-        render_mode=None, difficulty_level=difficulty, obs_size=obs_size
+        render_mode=None, difficulty_level=difficulty, obs_dim=obs_dim
     )
     # PORT NOTE - this guard is new and it is not optional.
     #
@@ -294,7 +292,9 @@ def main():
                         help="shared: one Discrete(7) policy queried per robot (roadmap "
                              "step 6 default). joint: one MultiDiscrete policy.")
     parser.add_argument("--episodes", type=int, default=30)
-    parser.add_argument("--obs-size", type=int, default=DEFAULT_OBS_SIZE)
+    parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM,
+                        help="Asserted against the pinned width in env.py; env.py "
+                             "rejects a mismatch rather than building a bad env.")
     parser.add_argument("--max-steps", type=int, default=None,
                         help="Hard per-episode step budget enforced by the harness. "
                              "Defaults to env.max_steps (2000). Lower it for smoke runs - "
@@ -368,7 +368,7 @@ def main():
         label = LEVEL_LABELS.get(level, f"level {level}")
         print(f"\n{'='*84}\n  Level {level} - {label}\n{'='*84}", flush=True)
         results[level] = evaluate_level(
-            model, level, args.episodes, args.obs_size, recurrent, policy_mode,
+            model, level, args.episodes, args.obs_dim, recurrent, policy_mode,
             max_steps=args.max_steps,
         )
         r = results[level]
@@ -408,7 +408,7 @@ def main():
         "model": args.model,
         "policy_mode": policy_mode,
         "num_agents": NUM_AGENTS,
-        "obs_size": args.obs_size,
+        "obs_dim": args.obs_dim,
         "episodes_per_level": args.episodes,
         "date": date.today().isoformat(),
         "observations_implemented": not obs_missing,

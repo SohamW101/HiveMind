@@ -12,12 +12,13 @@ WHAT CHANGED IN THE PORT (each site is marked "PORT NOTE"):
   - env class and factory now build HiveMindMultiAgentEnv
   - the curriculum ladder is carton count (4 -> 8 -> 12), not the old obstacle levels
   - the success test reads a per-episode signal from `info`, not the last step's reward
-  - obs-size constants are declared here because the multi-agent env exports none
+  - obs-dim constants are imported from env.py, which pins them (roadmap step 3)
   - make_env takes an explicit per-worker seed
 
-STATUS: roadmap steps 3 and 4 (observations, rewards, termination) are not implemented
-yet, so nothing here can actually train today. Everything that does not depend on them -
-the device probe, the schedules, `load_policy`, `num_parallel_envs` - works now.
+STATUS: roadmap steps 3 and 4 have landed. The env reports a real (4, OBS_DIM_V2)
+observation, pays the reward structure from MAWC_Technical_Specification.pdf section 3,
+and ends episodes on completion or the step limit. What is still missing before a run
+means anything: the greedy baseline (step 5) and models.py / train.py (step 6).
 """
 import os
 from collections import deque
@@ -25,22 +26,19 @@ from typing import Callable
 
 import torch
 
-from hivemind_env.env import HiveMindMultiAgentEnv
+from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
 
 from stable_baselines3.common.callbacks import BaseCallback
 
 # PORT NOTE: the single-agent env exported OBS_SIZE_V1 / OBS_SIZE_V2 / DEFAULT_OBS_SIZE
-# and this module imported them. `hivemind_env/env.py` on this branch exports no module
-# constants at all - it takes `obs_size=21` as a plain default argument and never reads
-# it. They are declared here so there is exactly one place to change when roadmap step 3
-# pins the real observation dimension.
+# and this module imported them. When this file was first ported, the multi-agent env
+# exported no constants at all, so placeholders were declared here.
 #
-# CLAUDE.md step 3 says: "Pin the dimension and write it down." Its own component list
-# sums to 33 per robot - own pose 3 + velocity 2 + carrying 1 + other poses 9 + other
-# carrying 3 + carton status 12 + depot direction 2 + elapsed time 1 - before any message
-# slots. Do not treat any number here as settled until step 3 actually lands.
+# Roadmap step 3 has since landed and env.py is now the single source of truth: the
+# observation is pinned at OBS_DIM_V3 = 177 floats per robot (129 world features + 48
+# reserved message slots), with the full component table in env.py's header. Import it,
+# never restate it - a second copy of the number is exactly how the two drift apart.
 NUM_AGENTS = 4
-DEFAULT_OBS_SIZE = 21
 
 # Curriculum ladder. The single-agent branch promoted through four obstacle-density
 # levels; here the difficulty knob is how many of the 12 cartons must be delivered
@@ -58,12 +56,12 @@ MAX_DIFFICULTY_LEVEL = max(CURRICULUM_CARTONS)
 # collisions ended at -2.01 and truncation at whatever the last shaping term was, so 5.0
 # cleanly separated deliveries from every other outcome.
 #
-# Multi-agent has no single terminal reward that means "the job is done". Per CLAUDE.md
-# step 4 a completing episode's final step pays roughly
-#     0.90 * (10 delivery + 100 completion + makespan bonus) + 0.10 * 2  ~=  99+
-# while any non-completing step sits near zero. 50.0 sits in that gap with room on both
-# sides. It is a fallback only - `_episode_succeeded` below prefers an explicit flag in
-# `info`, which is what step 4 should actually provide.
+# Multi-agent has no single terminal reward that means "the job is done". Now that step
+# 4 has landed, a completing episode's final step measures ~+143 (10 delivery + 100
+# completion + ~49 makespan, weighted 0.90, plus 0.10 x 2 own delivery) while any
+# non-completing step sits near zero. 50.0 sits in that gap with room on both sides.
+# It is a fallback only: `_episode_succeeded` prefers `info["is_success"]`, which the
+# env now sets explicitly.
 SUCCESS_REWARD_THRESHOLD = 50.0
 
 
@@ -234,12 +232,13 @@ def load_policy(model_path: str, device: str = "cpu", recurrent: bool | None = N
     return model, recurrent
 
 
-def make_env(difficulty_level: int = 1, obs_size: int = DEFAULT_OBS_SIZE, seed: int | None = None):
+def make_env(difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: int | None = None):
     """
     Env factory for SubprocVecEnv.
 
-    `obs_size` is explicit on purpose: it determines the feature extractor's flatten
-    width, so a model trained at one size cannot be loaded into an env built at another.
+    `obs_dim` is explicit on purpose: it is baked into the policy's input layer, so a
+    model trained at one width cannot be loaded into an env built at another. env.py
+    rejects any value but the pinned one, so passing it is an assertion, not a knob.
 
     PORT NOTE: `seed` is new. The single-agent factory left seeding to SB3, but this
     env's world generation is driven by the module-level `random` / `np.random` state
@@ -253,7 +252,7 @@ def make_env(difficulty_level: int = 1, obs_size: int = DEFAULT_OBS_SIZE, seed: 
     """
     def _init():
         env = HiveMindMultiAgentEnv(
-            render_mode=None, difficulty_level=difficulty_level, obs_size=obs_size
+            render_mode=None, difficulty_level=difficulty_level, obs_dim=obs_dim
         )
         if seed is not None:
             env.reset(seed=seed)
