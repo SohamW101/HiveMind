@@ -32,3 +32,9 @@ develop-eggs/
 
 # Generated reports
 smoke_test_results.txt
+
+CLAUDE.md
+
+# Training artifacts
+models/
+tensorboard_logs/

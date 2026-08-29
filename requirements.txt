@@ -4,4 +4,9 @@ pybullet>=3.2.5
 python-dotenv>=1.0.0
 tqdm
 rich
+stable-baselines3
 sb3-contrib
+torch
+
+# Optional: training runs without it, but no curves are written.
+# tensorboard

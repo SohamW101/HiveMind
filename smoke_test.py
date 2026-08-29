@@ -10,15 +10,17 @@ grepped train.py for literal strings, which tested the text of a file rather tha
 behaviour and reported a FAIL for a stale token that had been correctly removed.
 
 PORT NOTE - three result states instead of two. The single-agent env was finished, so
-every check was PASS or FAIL. Here, roadmap steps 3, 4, 6 are genuinely not built yet, so
-a third state exists:
+every check was PASS or FAIL. Here, roadmap steps 4 and 6 are genuinely not built yet
+(step 3 has since landed and its checks are now hard assertions), so a third state
+exists:
 
     PASS    works now
     TODO    not implemented yet, and known not to be - not a regression
     FAIL    something that used to work, or should work today, is broken
 
-Only FAIL sets a non-zero exit code. As steps 3/4/6 land, TODO lines should turn into
+Only FAIL sets a non-zero exit code. As steps 4 and 6 land, TODO lines should turn into
 PASS lines without this file needing new checks - that is the point of listing them.
+Step 3 already made that trip: its TODOs are now assertions.
 
     .venv\\Scripts\\python.exe smoke_test.py
 """
@@ -48,9 +50,13 @@ try:
     from stable_baselines3 import PPO  # noqa: F401
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor  # noqa: F401
     from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback  # noqa: F401
-    from hivemind_env.env import HiveMindMultiAgentEnv
+    from hivemind_env.env import (
+        OBS_DIM_V3,
+        HiveMindMultiAgentEnv,
+        describe_observation_layout,
+    )
     from hivemind_env.training import (
-        DEFAULT_OBS_SIZE,
+        DEFAULT_OBS_DIM,
         NUM_AGENTS,
         CurriculumCallback,
         get_device,
@@ -73,21 +79,26 @@ except Exception as e:
     emit(f"FAIL: Device check: {e}")
 
 # -- Environment ---------------------------------------------------------------
-# PORT NOTE: the single-agent version asserted `obs["grid"].shape == (N, N, 5)` and
-# `len(info["lidar_distances"]) == 180`. Neither exists here: `_get_obs()` returns [],
-# there is no `observation_space`, and there are no rayTest calls anywhere in env.py.
-# Those are roadmap step 3, so they are checked as TODO, not asserted as FAIL.
+# PORT NOTE: the single-agent version asserted `obs["grid"].shape == (N, N, 5)`. This env
+# has no grid observation - roadmap step 3 gave it a flat (num_agents, OBS_DIM_V1) vector
+# instead - so the shape assertion is against the pinned width and is a hard FAIL.
+# LiDAR is a separate matter: it is absent here and is NOT part of step 3's component
+# list, so it stays a TODO rather than a failure.
 env = None
 try:
-    env = HiveMindMultiAgentEnv(render_mode=None, difficulty_level=1, obs_size=DEFAULT_OBS_SIZE)
+    env = HiveMindMultiAgentEnv(render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM)
     emit(f"PASS: env constructed. num_agents={env.num_agents}, action_space={env.action_space}")
     if env.num_agents != NUM_AGENTS:
         emit(f"FAIL: expected {NUM_AGENTS} agents, got {env.num_agents}")
 
     if hasattr(env, "observation_space"):
         emit(f"PASS: observation_space declared: {env.observation_space}")
+        expected = (NUM_AGENTS, OBS_DIM_V3)
+        if env.observation_space.shape != expected:
+            emit(f"FAIL: observation_space shape {env.observation_space.shape} "
+                 f"!= pinned {expected}")
     else:
-        emit("TODO: no observation_space declared (roadmap step 3)")
+        emit("FAIL: no observation_space declared (roadmap step 3 regressed)")
 
     obs, info = env.reset(seed=0)
     emit(f"PASS: env.reset(seed=0) OK. info keys={sorted(info)}")
@@ -100,14 +111,21 @@ try:
         emit(f"FAIL: expected 12 cartons at reset, got {info['remaining_resources']}")
 
     if len(obs) == 0:
-        emit("TODO: _get_obs() returns an empty list (roadmap step 3)")
+        emit("FAIL: _get_obs() returned nothing (roadmap step 3 regressed)")
     else:
-        emit(f"PASS: obs is non-empty: type={type(obs).__name__} len={len(obs)}")
+        emit(f"PASS: obs {obs.shape} {obs.dtype}, "
+             f"range [{obs.min():.3f}, {obs.max():.3f}]")
+        if not env.observation_space.contains(obs):
+            emit("FAIL: observation is outside its own observation_space")
+        else:
+            emit("PASS: observation lies inside observation_space")
+    for line in describe_observation_layout().splitlines():
+        emit(f"  {line}")
 
     if "lidar_distances" in info:
         emit(f"PASS: info exposes {len(info['lidar_distances'])} lidar distances")
     else:
-        emit("TODO: no LiDAR in info - env.py has no rayTest calls (roadmap step 3)")
+        emit("FAIL: LiDAR missing from info - it is part of observation V3")
 except Exception as e:
     emit(f"FAIL: env.reset(): {type(e).__name__}: {e}")
 
@@ -131,7 +149,9 @@ if env is not None:
         emit(f"PASS: 5 steps OK. Per-agent rewards: {rewards[-1]}")
 
         if all(all(float(r) == 0.0 for r in rw) for rw in rewards):
-            emit("TODO: reward is hard-coded [0,0,0,0] (roadmap step 4)")
+            emit("FAIL: reward is all zeros - step 4 regressed")
+        else:
+            emit("PASS: rewards are non-zero and per-agent")
         if env.current_step >= env.max_steps:
             emit("FAIL: step budget exhausted during a 5-step smoke test")
         emit(f"PASS: current_step advanced to {env.current_step} (max_steps={env.max_steps})")
@@ -139,10 +159,11 @@ if env is not None:
         emit(f"FAIL: env.step(): {type(e).__name__}: {e}")
     finally:
         # PORT NOTE: the single-agent env guarded close() against a double disconnect and
-        # this test asserted that. HiveMindMultiAgentEnv.close() does not - the second
-        # call raises pybullet.error("Not connected to physics server."). Reported rather
-        # than fixed: env.py is out of scope this session. The one-line fix is to clear
-        # self.client_id (or set a _closed flag) inside close().
+        # this test asserted that. HiveMindMultiAgentEnv.close() still does not - the
+        # second call raises pybullet.error("Not connected to physics server."). Left
+        # unfixed deliberately: it is unrelated to the observation work and wants its own
+        # change. It will bite during SubprocVecEnv teardown in step 6, so fix it before
+        # then - guard close() on a _closed flag.
         env.close()
         try:
             env.close()
@@ -153,26 +174,43 @@ if env is not None:
 
 # -- Termination wiring ---------------------------------------------------------
 try:
-    src = (ROOT / "hivemind_env" / "env.py").read_text(encoding="utf-8")
-    if "return self._get_obs(), [0]*self.num_agents, False, False" in src:
-        emit("TODO: terminated/truncated are hard-coded False; max_steps unenforced "
-             "(roadmap step 4)")
+    probe = HiveMindMultiAgentEnv(render_mode=None)
+    probe.reset(seed=0)
+    probe.max_steps = 3
+    trunc = False
+    for _ in range(3):
+        _, _, term, trunc, _ = probe.step([6, 6, 6, 6])
+    probe.close()
+    if trunc:
+        emit("PASS: truncation fires at max_steps")
     else:
-        emit("PASS: step() no longer returns hard-coded reward/termination")
+        emit("FAIL: max_steps is not enforced (roadmap step 4 regressed)")
 except Exception as e:
     emit(f"FAIL: could not read env.py: {e}")
 
 # -- Feature extractor wiring ---------------------------------------------------
-# PORT NOTE: was an unconditional build of CustomCombinedExtractor. hivemind_env/models.py
-# is 0 bytes on this branch (roadmap step 6), and it also needs an observation_space that
-# does not exist yet, so this is a soft check.
+# The extractor is real now (roadmap step 6). Build it against the env's own observation
+# space so a layout change that the network has not followed shows up here rather than
+# forty minutes into a training run.
 try:
-    from hivemind_env.models import CustomCombinedExtractor  # noqa: F401
-    emit("PASS: hivemind_env.models.CustomCombinedExtractor importable")
-except ImportError:
-    emit("TODO: hivemind_env/models.py is empty - no feature extractor yet (roadmap step 6)")
+    import torch
+    from hivemind_env.models import HiveMindExtractor
+    probe = HiveMindMultiAgentEnv(render_mode=None)
+    single = probe.observation_space  # (num_agents, obs_dim)
+    from gymnasium import spaces
+    flat = spaces.Box(low=-1.0, high=1.0, shape=(OBS_DIM_V3,), dtype=np.float32)
+    ex = HiveMindExtractor(flat, features_dim=256)
+    out = ex(torch.zeros(2, OBS_DIM_V3))
+    probe.close()
+    if tuple(out.shape) == (2, 256):
+        emit(f"PASS: HiveMindExtractor builds and runs "
+             f"({sum(q.numel() for q in ex.parameters()):,} params)")
+    else:
+        emit(f"FAIL: extractor emitted {tuple(out.shape)}, expected (2, 256)")
+except ImportError as e:
+    emit(f"FAIL: models import: {e}")
 except Exception as e:
-    emit(f"FAIL: models import: {type(e).__name__}: {e}")
+    emit(f"FAIL: extractor build: {type(e).__name__}: {e}")
 
 # -- Scaffolding sanity ---------------------------------------------------------
 try:
