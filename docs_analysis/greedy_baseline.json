@@ -23,7 +23,7 @@
       "min_makespan": 82,
       "max_makespan": 123,
       "avg_delivered_fraction": 1.0,
-      "avg_distance": 230.9,
+      "avg_distance": 231.1,
       "avg_collisions": 6.3,
       "avg_steps": 97.6,
       "avg_reward_total": 835.71,
@@ -46,7 +46,7 @@
           "steps": 95,
           "delivered": 12,
           "cartons": 12,
-          "distance": 233.01,
+          "distance": 233.39,
           "collisions": 10,
           "reward_total": 769.8,
           "reward_per_agent": [
@@ -64,7 +64,7 @@
           "steps": 96,
           "delivered": 12,
           "cartons": 12,
-          "distance": 244.97,
+          "distance": 245.1,
           "collisions": 9,
           "reward_total": 787.56,
           "reward_per_agent": [
@@ -82,7 +82,7 @@
           "steps": 93,
           "delivered": 12,
           "cartons": 12,
-          "distance": 218.87,
+          "distance": 218.7,
           "collisions": 2,
           "reward_total": 914.35,
           "reward_per_agent": [
@@ -100,7 +100,7 @@
           "steps": 93,
           "delivered": 12,
           "cartons": 12,
-          "distance": 232.62,
+          "distance": 232.75,
           "collisions": 4,
           "reward_total": 878.36,
           "reward_per_agent": [
@@ -118,7 +118,7 @@
           "steps": 89,
           "delivered": 12,
           "cartons": 12,
-          "distance": 215.02,
+          "distance": 214.85,
           "collisions": 7,
           "reward_total": 825.44,
           "reward_per_agent": [
@@ -136,7 +136,7 @@
           "steps": 99,
           "delivered": 12,
           "cartons": 12,
-          "distance": 244.98,
+          "distance": 244.8,
           "collisions": 9,
           "reward_total": 786.75,
           "reward_per_agent": [
@@ -154,7 +154,7 @@
           "steps": 88,
           "delivered": 12,
           "cartons": 12,
-          "distance": 232.68,
+          "distance": 232.79,
           "collisions": 6,
           "reward_total": 843.72,
           "reward_per_agent": [
@@ -172,7 +172,7 @@
           "steps": 82,
           "delivered": 12,
           "cartons": 12,
-          "distance": 202.8,
+          "distance": 202.9,
           "collisions": 4,
           "reward_total": 881.33,
           "reward_per_agent": [
@@ -190,7 +190,7 @@
           "steps": 98,
           "delivered": 12,
           "cartons": 12,
-          "distance": 221.03,
+          "distance": 221.28,
           "collisions": 6,
           "reward_total": 841.01,
           "reward_per_agent": [
@@ -208,7 +208,7 @@
           "steps": 93,
           "delivered": 12,
           "cartons": 12,
-          "distance": 224.62,
+          "distance": 224.85,
           "collisions": 5,
           "reward_total": 860.39,
           "reward_per_agent": [
@@ -226,7 +226,7 @@
           "steps": 87,
           "delivered": 12,
           "cartons": 12,
-          "distance": 228.78,
+          "distance": 229.32,
           "collisions": 8,
           "reward_total": 807.99,
           "reward_per_agent": [
@@ -244,7 +244,7 @@
           "steps": 95,
           "delivered": 12,
           "cartons": 12,
-          "distance": 230.85,
+          "distance": 230.99,
           "collisions": 5,
           "reward_total": 859.81,
           "reward_per_agent": [
@@ -262,7 +262,7 @@
           "steps": 95,
           "delivered": 12,
           "cartons": 12,
-          "distance": 220.81,
+          "distance": 220.99,
           "collisions": 4,
           "reward_total": 877.81,
           "reward_per_agent": [
@@ -280,7 +280,7 @@
           "steps": 103,
           "delivered": 12,
           "cartons": 12,
-          "distance": 244.86,
+          "distance": 245.31,
           "collisions": 9,
           "reward_total": 785.66,
           "reward_per_agent": [
@@ -298,7 +298,7 @@
           "steps": 100,
           "delivered": 12,
           "cartons": 12,
-          "distance": 218.88,
+          "distance": 219.1,
           "collisions": 3,
           "reward_total": 894.46,
           "reward_per_agent": [
@@ -316,7 +316,7 @@
           "steps": 89,
           "delivered": 12,
           "cartons": 12,
-          "distance": 224.64,
+          "distance": 224.72,
           "collisions": 6,
           "reward_total": 843.46,
           "reward_per_agent": [
@@ -334,7 +334,7 @@
           "steps": 111,
           "delivered": 12,
           "cartons": 12,
-          "distance": 247.03,
+          "distance": 246.93,
           "collisions": 6,
           "reward_total": 837.48,
           "reward_per_agent": [
@@ -352,7 +352,7 @@
           "steps": 97,
           "delivered": 12,
           "cartons": 12,
-          "distance": 217.07,
+          "distance": 217.54,
           "collisions": 10,
           "reward_total": 769.28,
           "reward_per_agent": [
@@ -370,7 +370,7 @@
           "steps": 98,
           "delivered": 12,
           "cartons": 12,
-          "distance": 238.84,
+          "distance": 238.89,
           "collisions": 5,
           "reward_total": 858.99,
           "reward_per_agent": [
@@ -388,7 +388,7 @@
           "steps": 111,
           "delivered": 12,
           "cartons": 12,
-          "distance": 232.67,
+          "distance": 232.76,
           "collisions": 4,
           "reward_total": 873.49,
           "reward_per_agent": [
@@ -406,7 +406,7 @@
           "steps": 102,
           "delivered": 12,
           "cartons": 12,
-          "distance": 238.96,
+          "distance": 239.05,
           "collisions": 8,
           "reward_total": 803.93,
           "reward_per_agent": [
@@ -424,7 +424,7 @@
           "steps": 94,
           "delivered": 12,
           "cartons": 12,
-          "distance": 226.67,
+          "distance": 226.61,
           "collisions": 7,
           "reward_total": 824.08,
           "reward_per_agent": [
@@ -442,7 +442,7 @@
           "steps": 101,
           "delivered": 12,
           "cartons": 12,
-          "distance": 231.11,
+          "distance": 231.03,
           "collisions": 7,
           "reward_total": 822.19,
           "reward_per_agent": [
@@ -460,7 +460,7 @@
           "steps": 107,
           "delivered": 12,
           "cartons": 12,
-          "distance": 249.1,
+          "distance": 249.11,
           "collisions": 9,
           "reward_total": 784.55,
           "reward_per_agent": [
@@ -478,7 +478,7 @@
           "steps": 102,
           "delivered": 12,
           "cartons": 12,
-          "distance": 230.82,
+          "distance": 231.14,
           "collisions": 5,
           "reward_total": 857.9,
           "reward_per_agent": [
@@ -496,7 +496,7 @@
           "steps": 86,
           "delivered": 12,
           "cartons": 12,
-          "distance": 208.81,
+          "distance": 209.01,
           "collisions": 10,
           "reward_total": 772.22,
           "reward_per_agent": [
@@ -514,7 +514,7 @@
           "steps": 101,
           "delivered": 12,
           "cartons": 12,
-          "distance": 222.65,
+          "distance": 223.01,
           "collisions": 5,
           "reward_total": 858.19,
           "reward_per_agent": [
@@ -532,7 +532,7 @@
           "steps": 95,
           "delivered": 12,
           "cartons": 12,
-          "distance": 222.81,
+          "distance": 222.79,
           "collisions": 5,
           "reward_total": 859.83,
           "reward_per_agent": [
@@ -550,7 +550,7 @@
           "steps": 123,
           "delivered": 12,
           "cartons": 12,
-          "distance": 286.81,
+          "distance": 287.07,
           "collisions": 4,
           "reward_total": 870.24,
           "reward_per_agent": [
@@ -568,7 +568,7 @@
           "steps": 105,
           "delivered": 12,
           "cartons": 12,
-          "distance": 234.87,
+          "distance": 234.85,
           "collisions": 7,
           "reward_total": 821.13,
           "reward_per_agent": [

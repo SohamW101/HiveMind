@@ -344,8 +344,37 @@ class HiveMindMultiAgentEnv(gym.Env):
 
     def __init__(self, render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM,
                  show_lidar=None, obs_size=None, idle_penalises_turning=True,
-                 lidar_noise=True):
+                 lidar_noise=True, substeps=None):
         super().__init__()
+        # Physics substeps per environment step: a one-cell move is executed by
+        # teleporting the robot across this many resetBasePositionAndOrientation +
+        # stepSimulation pairs.
+        #
+        # It is an interpolation, not the motion model. The final pose is the snapped
+        # grid target regardless, and collisions are read from that final pose, so the
+        # count does NOT affect makespan, collisions, deliveries, invalid actions or
+        # completion. Measured across the full 30-seed greedy baseline at 30, 10, 5 and
+        # 1 substeps: identical to the decimal every time (97.6 mean, 96.5 median,
+        # sd 8.3, 30/30 complete, 6.3 collisions).
+        #
+        # What it does change is animation smoothness and how far a carton is flung when
+        # a robot ploughs into it (max 3.98 m at 30, 1.17 m at 1 under random actions) -
+        # and speed, by about 10x end to end.
+        #
+        # Default is 5, chosen on 2026-08-30: 5x the raw throughput of 30 with no
+        # behavioural difference. Not 1, because a robot then jumps a full metre in one
+        # go and could tunnel past the 6 cm shelf posts - no evidence it does, but a
+        # thin margin for a further 2.6x, and thinner still once the velocity-controlled
+        # motion model replaces the teleport.
+        #
+        # None means "pick for the mode": GUI keeps 30 so `play_multi.py` animates
+        # smoothly. Behaviour is identical either way, so the demo and training runs
+        # disagreeing on this costs nothing.
+        if substeps is None:
+            substeps = 30 if render_mode == "human" else 5
+        self.substeps = int(substeps)
+        if self.substeps < 1:
+            raise ValueError(f"substeps must be >= 1, got {substeps}")
         self.idle_penalises_turning = idle_penalises_turning
         self.lidar_noise = lidar_noise
         self._lidar_cache = None
@@ -631,7 +660,7 @@ class HiveMindMultiAgentEnv(gym.Env):
 
     def step(self, actions):
         self.current_step += 1
-        num_substeps = 30
+        num_substeps = self.substeps
         self._lidar_cache = None
 
         # Per-step reward events (spec S3). Filled by the action loop below and

@@ -241,15 +241,19 @@ every robot in every world.
 .venv\Scripts\python.exe train.py --timesteps 5000000 --worlds 8
 ```
 
-Each warehouse runs in its own process by default (`--backend subproc`), because 95% of
-training time is single-threaded PyBullet physics — a faster GPU only touches the ~4%
-spent on the policy update. On a 16-thread machine, 12 workers measured **133 robot-steps/s
-end to end against 34/s in-process**, so a 2M-step run drops from roughly 16 hours to
-about 4. Use `--backend inprocess` when debugging: a traceback inside a worker is much
+Each warehouse runs in its own process by default (`--backend subproc`), because training
+is dominated by single-threaded PyBullet physics rather than by the network. Combined with
+the default of 5 physics substeps, a 16-thread machine measures **844 robot-steps/s end to
+end against 34/s** before either change — a 2M-step run takes about 40 minutes rather than
+16 hours. Use `--backend inprocess` when debugging: a traceback inside a worker is much
 harder to read.
 
-Once the environment is parallelised the update becomes a much larger share of the run
-(~40% rather than ~4%), so a CUDA GPU is worth having *after* this change, not before.
+Substeps are an interpolation, not the motion model. Makespan, collisions, deliveries and
+completion are identical at any value — verified across the full 30-seed baseline at 30,
+10, 5 and 1. Override with `--substeps`; GUI runs keep 30 so the demo animates smoothly.
+
+The profile is now roughly half physics and half policy update, so a CUDA GPU is worth
+having at this point; before these changes it would have addressed under 4% of the run.
 
 TensorBoard is optional. If it is not installed, training runs and simply writes no
 curves rather than failing.

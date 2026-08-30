@@ -67,7 +67,8 @@ def tensorboard_available() -> bool:
         return False
 
 
-def build_env(worlds: int, difficulty: int, seed: int | None, backend: str = "subproc"):
+def build_env(worlds: int, difficulty: int, seed: int | None,
+              backend: str = "subproc", substeps: int | None = None):
     """
     Wrapped in VecMonitor so ep_rew_mean / ep_len_mean reach TensorBoard.
 
@@ -77,9 +78,10 @@ def build_env(worlds: int, difficulty: int, seed: int | None, backend: str = "su
     sequential here: slower, but a traceback inside a worker is far harder to read.
     """
     cls = HiveMindSubprocVecEnv if backend == "subproc" else HiveMindSharedPolicyVecEnv
+    kwargs = {} if substeps is None else {"substeps": substeps}
     vec = cls(
         num_worlds=worlds, difficulty_level=difficulty,
-        obs_dim=DEFAULT_OBS_DIM, seed=seed,
+        obs_dim=DEFAULT_OBS_DIM, seed=seed, **kwargs,
     )
     return VecMonitor(vec)
 
@@ -107,6 +109,11 @@ def main():
     p.add_argument("--save-dir", default="models")
     p.add_argument("--log-dir", default="tensorboard_logs")
     p.add_argument("--checkpoint-every", type=int, default=250_000)
+    p.add_argument("--substeps", type=int, default=None,
+                   help="Physics substeps per env step (env default: 5 headless, 30 GUI). "
+                        "An interpolation, not the motion model - makespan, collisions, "
+                        "deliveries and completion are identical at any value. Lower is "
+                        "faster; 1 risks tunnelling past the 6 cm shelf posts.")
     p.add_argument("--backend", choices=["subproc", "inprocess"], default="subproc",
                    help="subproc: one process per warehouse (default; the only way to "
                         "use more than one core). inprocess: everything sequential in "
@@ -148,11 +155,12 @@ def main():
     print(f"  lr           : {args.lr:.0e}, linear decay to 0")
     print(f"  device       : {device}")
     print(f"  tensorboard  : {tb_log or 'disabled (not installed)'}")
+    print(f"  substeps     : {args.substeps if args.substeps else '5 (env default)'}")
     print(f"  backend      : {args.backend}"
           + ("" if args.backend == "subproc" else "  (sequential - one core only)"),
           flush=True)
 
-    env = build_env(worlds, args.difficulty, args.seed, args.backend)
+    env = build_env(worlds, args.difficulty, args.seed, args.backend, args.substeps)
 
     model = PPO(
         "MlpPolicy",
