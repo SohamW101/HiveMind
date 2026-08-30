@@ -35,4 +35,3 @@ smoke_test_results.txt
 
 # Training artifacts
 models/
-tensorboard_logs/
