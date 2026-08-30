@@ -1,6 +1,33 @@
 # HiveMind Multi-Agent Warehouse
 
-A Gymnasium environment built with PyBullet for experimenting with robot navigation and carton pickup in a generated warehouse. The current environment creates four differential-drive bots, shelf obstacles, two rows of carton resources, a depot, boundary walls, and a custom floor.
+Four warehouse robots learn to divide a delivery job between themselves — and, later, to
+develop a communication protocol that helps them do it — using multi-agent reinforcement
+learning in PyBullet. Twelve cartons sit in randomised shelf aisles; the robots must
+collect them all and deliver them to a depot as fast as possible, with no central
+controller assigning the work.
+
+The research claim is about **emergent communication**, not navigation.
+
+A Gymnasium environment provides the world: a 13×13 m arena regenerated every reset, four
+differential-drive robots with a 72-ray planar LiDAR, solid shelving, twelve cartons, and
+a depot. Observations, rewards, collisions and episode boundaries are all implemented; a
+shared policy trains across all four robots.
+
+## Training
+
+**See [TRAINING.md](TRAINING.md) for the full runbook** — setup on a fresh machine, the
+verification checklist, every flag, throughput tuning, what to watch while a run is going,
+how to evaluate a checkpoint and how to read the result.
+
+The short version:
+
+```powershell
+.venv\Scripts\python.exe train.py --timesteps 2000000 --worlds 12    # ~40 minutes
+.venv\Scripts\python.exe scripts\run_evaluation.py --model models\<run>_final.zip --episodes 30
+```
+
+**The target is makespan 98** — the greedy baseline, over 30 fixed seeds. A policy that
+does not beat it has not demonstrated anything.
 
 ## Current Status
 
@@ -14,8 +41,12 @@ A Gymnasium environment built with PyBullet for experimenting with robot navigat
 - The floor is light brown and the boundary walls are brown.
 - Bot chassis and arm booms are metallic black; grippers and lidar are metallic grey; wheels retain their dark colour.
 - Cartons are 0.5 m x 0.5 m x 0.5 m.
-- The lidar starts at its initial height and raises to 0.5 m while a carton is carried.
+- The lidar mast starts at its initial height and raises to 0.5 m while a carton is carried,
+  and drives a real 72-ray planar scan reported in the observation.
+- Shelves are solid: the bottom plate overlaps the robot chassis, so entering a shelf cell
+  registers contact and costs the collision penalty. Aisles constrain routing.
 - Pickup and drop are implemented as environment actions.
+- Robots can push cartons. They are solid bodies, so the world is not static.
 
 The environment is a complete RL problem and the training pipeline runs end to end. It
 reports a pinned 177-float observation including a 72-ray LiDAR sweep, pays the reward
@@ -30,7 +61,7 @@ seeds.** No learned policy has been run against it yet, so no policy result exis
 The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
 `scripts/run_evaluation.py` are ported and adapted for four agents, but they cannot train
 or score a policy until observations and rewards exist. `smoke_test.py` reports exactly
-which of these are still outstanding. See `the project notes` for the ordered roadmap.
+which of these are still outstanding.
 
 ## Setup
 
@@ -86,7 +117,7 @@ Confirm the environment imports, constructs, resets, and steps:
 
 It reports three states -- `PASS` (works now), `TODO` (a roadmap item that is genuinely
 not built yet), and `FAIL` (a real breakage). Only `FAIL` sets a non-zero exit code, so
-the `TODO` lines double as a progress tracker for the roadmap in `the project notes`.
+the `TODO` lines double as a progress tracker for the remaining roadmap.
 
 ## Run The Pickup Demo
 
@@ -197,7 +228,7 @@ An episode `terminated`s when all 12 cartons are delivered and `truncated`s at
 `max_steps` (2000). `T_max` is `max_steps` — this environment counts steps, not seconds.
 
 The spec's replanning penalty is **not** implemented: it fires when A* re-runs, and this
-environment has no planner (see `the project notes`, decision 3). The constant is defined and
+environment has no planner by design. The constant is defined and
 left unused so the omission is visible.
 
 Check it end to end — this drives a robot through a full delivery, printing the reward
@@ -227,7 +258,7 @@ valid.
 
 Results are written to `docs_analysis/greedy_baseline.json`.
 
-## Training
+## Training in depth
 
 All four robots share one set of weights. `HiveMindSharedPolicyVecEnv` presents each
 four-robot world as four policy-facing slots, so PPO trains on the pooled experience of
@@ -268,7 +299,7 @@ explains what that trade buys and when to replace it.
 ├── environment.yml             Conda environment definition (alternative, not in use)
 ├── requirements.txt            Python dependencies
 ├── pyproject.toml              Package metadata and core dependencies
-├── the project notes                   Decisions already made, current state, and the roadmap
+├── TRAINING.md                 Full training runbook: setup, tuning, monitoring, results
 ├── play_multi.py               Single-bot navigation, pickup, and depot-drop demo
 ├── smoke_test.py               Import / device / reset / step check; PASS-TODO-FAIL report
 ├── train.py                    Shared-policy PPO training entry point
@@ -280,6 +311,7 @@ explains what that trade buys and when to replace it.
     ├── env.py                  Gymnasium environment and warehouse generation
     ├── greedy.py               Scripted baseline controller; the makespan to beat
     ├── vec_env.py              4 robots -> 4 policy slots sharing one set of weights
+    ├── subproc_vec_env.py      Same, one process per warehouse; the fast path
     ├── models.py               HiveMindExtractor: MLP + 1-D CNN over the LiDAR sweep
     ├── training.py             Shared scaffolding: curriculum callback, LR schedules,
     │                           env factory, device probe, version-safe policy loader
