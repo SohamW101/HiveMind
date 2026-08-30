@@ -30,7 +30,7 @@ seeds.** No learned policy has been run against it yet, so no policy result exis
 The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
 `scripts/run_evaluation.py` are ported and adapted for four agents, but they cannot train
 or score a policy until observations and rewards exist. `smoke_test.py` reports exactly
-which of these are still outstanding. See `CLAUDE.md` for the ordered roadmap.
+which of these are still outstanding. See `the project notes` for the ordered roadmap.
 
 ## Setup
 
@@ -86,7 +86,7 @@ Confirm the environment imports, constructs, resets, and steps:
 
 It reports three states -- `PASS` (works now), `TODO` (a roadmap item that is genuinely
 not built yet), and `FAIL` (a real breakage). Only `FAIL` sets a non-zero exit code, so
-the `TODO` lines double as a progress tracker for the roadmap in `CLAUDE.md`.
+the `TODO` lines double as a progress tracker for the roadmap in `the project notes`.
 
 ## Run The Pickup Demo
 
@@ -197,7 +197,7 @@ An episode `terminated`s when all 12 cartons are delivered and `truncated`s at
 `max_steps` (2000). `T_max` is `max_steps` — this environment counts steps, not seconds.
 
 The spec's replanning penalty is **not** implemented: it fires when A* re-runs, and this
-environment has no planner (see `CLAUDE.md`, decision 3). The constant is defined and
+environment has no planner (see `the project notes`, decision 3). The constant is defined and
 left unused so the omission is visible.
 
 Check it end to end — this drives a robot through a full delivery, printing the reward
@@ -268,7 +268,7 @@ explains what that trade buys and when to replace it.
 ├── environment.yml             Conda environment definition (alternative, not in use)
 ├── requirements.txt            Python dependencies
 ├── pyproject.toml              Package metadata and core dependencies
-├── CLAUDE.md                   Decisions already made, current state, and the roadmap
+├── the project notes                   Decisions already made, current state, and the roadmap
 ├── play_multi.py               Single-bot navigation, pickup, and depot-drop demo
 ├── smoke_test.py               Import / device / reset / step check; PASS-TODO-FAIL report
 ├── train.py                    Shared-policy PPO training entry point

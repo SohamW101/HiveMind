@@ -1,7 +1,7 @@
 """
 Drive one robot through a full delivery, printing the reward every step.
 
-CLAUDE.md roadmap step 4: "Verify with play_multi.py before any training - drive one
+The project roadmap, step 4: "Verify with play_multi.py before any training - drive one
 bot through a full delivery and print the reward each step." This is that, plus a
 numeric check of every line of the reward table in
 MAWC_Technical_Specification.pdf section 3.

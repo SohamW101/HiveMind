@@ -11,7 +11,7 @@ longer has. Fixed seeds and a written-down harness are how that stops happening.
 
 WHAT CHANGED IN THE PORT (each site is marked "PORT NOTE"):
   - the headline metric is MAKESPAN (steps to deliver all 12), not success rate.
-    CLAUDE.md step 8: "Track makespan (headline), distance travelled, collision count,
+    The project roadmap, step 8: "Track makespan (headline), distance travelled, collision count,
     and message entropy." Success rate is still reported, but makespan is the number the
     greedy baseline (step 5) is compared against.
   - levels are carton counts (4 / 8 / 12), not obstacle-density levels 1-4
@@ -105,7 +105,7 @@ def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start
     PORT NOTE: this function is entirely new, and it is the one real design decision in
     the port. The single-agent harness called `model.predict(obs)` and cast to int.
 
-    CLAUDE.md step 6 recommends training a *shared* policy over 4 single-agent slots, so
+    the project roadmap, step 6 recommends training a *shared* policy over 4 single-agent slots, so
     the saved model's action space will be Discrete(7), not MultiDiscrete([7]*4). Two
     modes cover both outcomes:
 
@@ -151,7 +151,7 @@ def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start
 
 
 def _distance_travelled(prev_positions, positions):
-    """Sum of per-robot XY displacement this step. CLAUDE.md step 8 metric."""
+    """Sum of per-robot XY displacement this step. Project roadmap, step 8 metric."""
     total = 0.0
     for (px, py, _), (x, y, _) in zip(prev_positions, positions):
         total += math.hypot(x - px, y - py)
@@ -190,7 +190,7 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         actor = controller if controller is not None else model
 
         # PORT NOTE: per-agent reward sums replace the single scalar. The 90/10 split
-        # (CLAUDE.md step 4) gives each robot a different total for the same shared
+        # (the project roadmap, step 4) gives each robot a different total for the same shared
         # outcome, and the spread across robots is itself a signal about role division.
         agent_rewards = np.zeros(NUM_AGENTS, dtype=float)
         steps = 0
@@ -270,7 +270,7 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         "median_makespan": float(statistics.median(makespans)) if makespans else None,
         "min_makespan": min(makespans) if makespans else None,
         "max_makespan": max(makespans) if makespans else None,
-        # Supporting metrics (CLAUDE.md step 8).
+        # Supporting metrics (project roadmap, step 8).
         "avg_delivered_fraction": round(float(np.mean(delivered_frac)), 4),
         "avg_distance": round(float(np.mean([e["distance"] for e in episodes])), 1),
         "avg_collisions": round(float(np.mean([e["collisions"] for e in episodes])), 2),
@@ -422,7 +422,7 @@ def main():
     print(f"  {'-'*75}")
     print(f"  Overall: {overall_done/overall_eps*100:.1f}% of {overall_eps} episodes completed")
     print(f"  Wall clock: {elapsed/60:.1f} min")
-    print("\n  Compare avg_makespan against the greedy baseline (CLAUDE.md roadmap step 5).")
+    print("\n  Compare avg_makespan against the greedy baseline (the project roadmap, step 5).")
     print("  A learned policy that does not beat greedy makespan has not shown anything.")
 
     payload = {

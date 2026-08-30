@@ -42,7 +42,7 @@ NUM_AGENTS = 4
 
 # Curriculum ladder. The single-agent branch promoted through four obstacle-density
 # levels; here the difficulty knob is how many of the 12 cartons must be delivered
-# (CLAUDE.md roadmap step 8: "the 4 -> 8 -> 12 carton curriculum").
+# (the project roadmap, step 8: "the 4 -> 8 -> 12 carton curriculum").
 #
 # `HiveMindMultiAgentEnv` accepts `difficulty_level` and stores it, but nothing reads it
 # yet, so promotion is currently a no-op on the world. The callback still logs and still
@@ -99,7 +99,7 @@ def _episode_succeeded(info, reward) -> bool:
 
     PORT NOTE: the single-agent callback thresholded the final step's reward, which was
     sound there because the terminal dropoff bonus dominated. In the multi-agent env the
-    90/10 shared/individual reward split (CLAUDE.md step 4) means each of the four agents
+    90/10 shared/individual reward split (the project roadmap, step 4) means each of the four agents
     sees a *different* final number for the same shared outcome, so a reward threshold is
     a proxy at best. Prefer an explicit signal when step 4 provides one.
 
@@ -129,7 +129,7 @@ class CurriculumCallback(BaseCallback):
       agent a fresh learning burst to adapt to the new environment.
 
     PORT NOTE: the body is unchanged apart from the success test. It already iterates
-    per vector-env slot, which is exactly what CLAUDE.md step 6's "wrap the env so the 4
+    per vector-env slot, which is exactly what the project roadmap, step 6's "wrap the env so the 4
     robots look like 4 parallel single-agent envs" produces - 4x as many slots, same
     logic. Be aware that under that wrapper `window_size` counts robot-episodes, not
     world-episodes.
@@ -242,10 +242,10 @@ def make_env(difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: in
 
     PORT NOTE: `seed` is new. The single-agent factory left seeding to SB3, but this
     env's world generation is driven by the module-level `random` / `np.random` state
-    that only `reset(seed=...)` touches (CLAUDE.md, Conventions), so without a distinct
+    that only `reset(seed=...)` touches (the project notes, Conventions), so without a distinct
     seed per worker every SubprocVecEnv process would regenerate identical warehouses.
 
-    NOTE: this returns the raw joint multi-agent env. CLAUDE.md step 6 calls for a
+    NOTE: this returns the raw joint multi-agent env. the project roadmap, step 6 calls for a
     wrapper presenting the 4 robots as 4 single-agent slots sharing one policy - build
     that wrapper on top of this factory, not inside it, so the greedy baseline (step 5)
     and the evaluation harness can still see the real joint env.

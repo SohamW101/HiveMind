@@ -2,7 +2,7 @@
 Train a shared policy on the HiveMind warehouse - roadmap step 6, no communication.
 
 All four robots run one set of weights. `HiveMindSharedPolicyVecEnv` presents each
-four-robot world as four policy-facing slots, which is CLAUDE.md's "cheap option first";
+four-robot world as four policy-facing slots, which is the project roadmap's "cheap option first";
 that module documents what this is and is not (parameter sharing with a decentralised
 critic, not MAPPO with a centralised one).
 

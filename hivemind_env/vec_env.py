@@ -2,7 +2,7 @@
 Presents N four-robot warehouses to Stable-Baselines3 as 4N single-agent environments
 that share one policy.
 
-This is CLAUDE.md roadmap step 6's "cheap option first":
+This is the project roadmap, step 6's "cheap option first":
 
     Stable-Baselines3 does not do MAPPO out of the box. Try the cheap option first -
     wrap the env so the 4 robots look like 4 parallel single-agent envs sharing a

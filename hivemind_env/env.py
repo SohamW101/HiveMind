@@ -236,7 +236,7 @@ CARTON_DELIVERED = 1.0
 # TWO SPEC ITEMS AND HOW THEY LAND HERE
 #
 # 1. The replanning penalty has no trigger in this environment and is NOT
-#    implemented. It fires when A* is re-run, and CLAUDE.md decision 3 puts A*,
+#    implemented. It fires when A* is re-run, and project decision 3 puts A*,
 #    DWA and EKF out of scope - robots here are placed on a grid, not driven
 #    along a planned path. There is nothing to replan, so charging for it would
 #    be inventing an event. The constant is defined below and left unused so the
