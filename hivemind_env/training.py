@@ -26,7 +26,12 @@ from typing import Callable
 
 import torch
 
-from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    DEFAULT_OBS_DIM,
+    OBS_DIM_V3,
+    HiveMindMultiAgentEnv,
+    max_steps_for,
+)
 
 from stable_baselines3.common.callbacks import BaseCallback
 
@@ -44,11 +49,36 @@ NUM_AGENTS = 4
 # levels; here the difficulty knob is how many of the 12 cartons must be delivered
 # (the project roadmap, step 8: "the 4 -> 8 -> 12 carton curriculum").
 #
-# `HiveMindMultiAgentEnv` accepts `difficulty_level` and stores it, but nothing reads it
-# yet, so promotion is currently a no-op on the world. The callback still logs and still
-# promotes, which keeps the wiring testable before step 8 makes it bite.
+# The callback sets `num_cartons` on every env directly. It used to set
+# `difficulty_level`, which the world stored and never read - so promotion was a no-op
+# and the whole curriculum did nothing but write a number to TensorBoard.
 CURRICULUM_CARTONS = {1: 4, 2: 8, 3: 12}
 MAX_DIFFICULTY_LEVEL = max(CURRICULUM_CARTONS)
+
+# The ladder TRAINING walks, which is finer than the one evaluation reports against.
+#
+# WHY IT STARTS AT ONE CARTON
+#
+# `success_rate` is an AND over four robots: an episode terminates only when EVERY
+# carton is delivered. At 4 cartons that conjunction is so unlikely under an untrained
+# policy that it never fires - measured over 15 random episodes at each level:
+#
+#     cartons   random completions   delivered/ep
+#        1          5/15  (33%)          0.33
+#        4          0/15  ( 0%)          ~0.5 of 4
+#
+# So through 5M + 409k + 153k + 215k steps of training, **the learner had never once
+# observed the +100 completion bonus or the +50 makespan bonus** - the two largest
+# terms in the entire reward table. Its value function had no data on terminal states,
+# because it had never reached one. Every run plateaued with `ep_len_mean` pinned at
+# the cap, which is exactly what that looks like from outside.
+#
+# One carton fixes the conjunction: any single robot delivering ends the episode, so
+# terminal reward becomes reachable by accident and the critic gets something to fit.
+# 4 -> 8 -> 12 is still the reported curriculum (roadmap step 8); 1 and 2 are a ramp
+# onto it, not a change to it.
+TRAINING_CURRICULUM = {1: 1, 2: 2, 3: 4, 4: 8, 5: 12}
+MAX_TRAINING_LEVEL = max(TRAINING_CURRICULUM)
 
 # PORT NOTE - this constant changed meaning.
 #
@@ -166,7 +196,7 @@ class CurriculumCallback(BaseCallback):
 
         current_level = self.training_env.get_attr("difficulty_level")[0]
         self.logger.record("curriculum/difficulty_level", current_level)
-        self.logger.record("curriculum/target_cartons", CURRICULUM_CARTONS[current_level])
+        self.logger.record("curriculum/target_cartons", TRAINING_CURRICULUM[current_level])
 
         if len(self.delivery_history) < self.window_size:
             return True
@@ -174,15 +204,22 @@ class CurriculumCallback(BaseCallback):
         success_rate = sum(self.delivery_history) / self.window_size
         self.logger.record("curriculum/success_rate", success_rate)
 
-        if success_rate >= self.target_success_rate and current_level < MAX_DIFFICULTY_LEVEL:
+        if success_rate >= self.target_success_rate and current_level < MAX_TRAINING_LEVEL:
             new_level = current_level + 1
             print(
                 f"\n[Curriculum] Step {self.num_timesteps:,} | "
                 f"Success rate {success_rate*100:.1f}% >= {self.target_success_rate*100:.0f}% | "
                 f"Upgrading difficulty: Level {current_level} -> Level {new_level} "
-                f"({CURRICULUM_CARTONS[current_level]} -> {CURRICULUM_CARTONS[new_level]} cartons)\n"
+                f"({TRAINING_CURRICULUM[current_level]} -> {TRAINING_CURRICULUM[new_level]} cartons)\n"
             )
             self.training_env.set_attr("difficulty_level", new_level)
+            # This is the line that makes promotion real.
+            self.training_env.set_attr("num_cartons", TRAINING_CURRICULUM[new_level])
+            # And the cap has to grow with it, or the harder level is handed an episode
+            # budget sized for the easier one. Both take effect at the next reset.
+            self.training_env.set_attr(
+                "max_steps", max_steps_for(TRAINING_CURRICULUM[new_level])
+            )
             self.delivery_history.clear()
 
             if self.reset_lr_on_promotion:

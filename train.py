@@ -38,9 +38,15 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.vec_env import VecMonitor
 
-from hivemind_env.env import DEFAULT_OBS_DIM, NUM_AGENTS
+from hivemind_env.env import (
+    DEFAULT_OBS_DIM,
+    NUM_AGENTS,
+    SHAPING_SCALE_DEFAULT,
+    max_steps_for,
+)
 from hivemind_env.models import DEFAULT_POLICY_KWARGS
 from hivemind_env.training import (
+    INFERENCE_CUSTOM_OBJECTS,
     CurriculumCallback,
     get_device,
     linear_schedule,
@@ -68,7 +74,10 @@ def tensorboard_available() -> bool:
 
 
 def build_env(worlds: int, difficulty: int, seed: int | None,
-              backend: str = "subproc", substeps: int | None = None):
+              backend: str = "subproc", substeps: int | None = None,
+              max_steps: int | None = None, num_cartons: int | None = None,
+              shaping: bool = True, gamma: float = 0.99,
+              shaping_scale: float | None = None):
     """
     Wrapped in VecMonitor so ep_rew_mean / ep_len_mean reach TensorBoard.
 
@@ -78,7 +87,15 @@ def build_env(worlds: int, difficulty: int, seed: int | None,
     sequential here: slower, but a traceback inside a worker is far harder to read.
     """
     cls = HiveMindSubprocVecEnv if backend == "subproc" else HiveMindSharedPolicyVecEnv
-    kwargs = {} if substeps is None else {"substeps": substeps}
+    kwargs = {"shaping": shaping, "gamma": gamma}
+    if substeps is not None:
+        kwargs["substeps"] = substeps
+    if max_steps is not None:
+        kwargs["max_steps"] = max_steps
+    if num_cartons is not None:
+        kwargs["num_cartons"] = num_cartons
+    if shaping_scale is not None:
+        kwargs["shaping_scale"] = shaping_scale
     vec = cls(
         num_worlds=worlds, difficulty_level=difficulty,
         obs_dim=DEFAULT_OBS_DIM, seed=seed, **kwargs,
@@ -96,19 +113,44 @@ def main():
                         "number rather than the single-agent branch's habit of 16, "
                         "which would be 64 robot-streams here.")
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--n-steps", type=int, default=512,
                    help="Rollout length PER SLOT. The buffer is n_steps x 4 x worlds.")
     p.add_argument("--batch-size", type=int, default=1024)
     p.add_argument("--difficulty", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--curriculum", action="store_true",
-                   help="Promote difficulty on rolling success. Currently a no-op on the "
-                        "world - difficulty_level is stored but nothing reads it yet "
-                        "(roadmap step 8) - so it only logs.")
+                   help="Promote on rolling success along the TRAINING ladder "
+                        "1 -> 2 -> 4 -> 8 -> 12 cartons. Start at --num-cartons 1: an "
+                        "episode ends only when EVERY carton is delivered, so at 4 the "
+                        "terminal bonus is never reached by an untrained policy and the "
+                        "critic never sees one. At 1 a random policy completes 33%%.")
+    p.add_argument("--init-from", default=None,
+                   help="Warm-start the policy from a saved checkpoint, typically the "
+                        "behaviour-cloned one from scripts/pretrain_bc.py. The critic is "
+                        "NOT cloned, so expect the first iterations to dip before they "
+                        "improve.")
     p.add_argument("--run-name", default=None)
     p.add_argument("--save-dir", default="models")
     p.add_argument("--log-dir", default="tensorboard_logs")
     p.add_argument("--checkpoint-every", type=int, default=250_000)
+    p.add_argument("--max-steps", type=int, default=None,
+                   help="Episode cap. Defaults per carton count - 150 / 250 / 400 at "
+                        "4 / 8 / 12 - which is roughly 3x greedy's makespan at each. "
+                        "The old flat 2000 made terminal rewards vanish under "
+                        "discounting: 0.99^2000 = 1.9e-9.")
+    p.add_argument("--num-cartons", type=int, default=None,
+                   help="Cartons in play (env default 12). Start at 1 with --curriculum; "
+                        "greedy scores makespan 23 at 4, 58 at 8, 97 at 12.")
+    p.add_argument("--shaping-scale", type=float, default=None,
+                   help="Strength of the potential-based shaping (env default 30.0). "
+                        "Sweep it with scripts/diagnose_incentives.py --shaping-scale "
+                        "before training on a new value; the gates there catch a scale "
+                        "that makes a pickup unprofitable.")
+    p.add_argument("--no-shaping", action="store_true",
+                   help="Train against the specification's sparse reward exactly. It "
+                        "provably does not learn from here - a 5M-step run finished "
+                        "below the do-nothing floor - so this is for ablations only.")
     p.add_argument("--substeps", type=int, default=None,
                    help="Physics substeps per env step (env default: 5 headless, 30 GUI). "
                         "An interpolation, not the motion model - makespan, collisions, "
@@ -156,11 +198,17 @@ def main():
     print(f"  device       : {device}")
     print(f"  tensorboard  : {tb_log or 'disabled (not installed)'}")
     print(f"  substeps     : {args.substeps if args.substeps else '5 (env default)'}")
+    print(f"  max steps    : {args.max_steps or f'{max_steps_for(args.num_cartons)} (per carton count)'}")
+    print(f"  cartons      : {args.num_cartons or '12 (env default)'}")
+    print(f"  shaping      : {'off - sparse spec reward' if args.no_shaping else f'on, scale {args.shaping_scale or SHAPING_SCALE_DEFAULT}'}")
     print(f"  backend      : {args.backend}"
           + ("" if args.backend == "subproc" else "  (sequential - one core only)"),
           flush=True)
 
-    env = build_env(worlds, args.difficulty, args.seed, args.backend, args.substeps)
+    env = build_env(worlds, args.difficulty, args.seed, args.backend,
+                    args.substeps, args.max_steps, args.num_cartons,
+                    shaping=not args.no_shaping, gamma=args.gamma,
+                    shaping_scale=args.shaping_scale)
 
     model = PPO(
         "MlpPolicy",
@@ -181,6 +229,15 @@ def main():
         device=device,
         verbose=1,
     )
+
+    if args.init_from:
+        # Load the weights, not the algorithm: a BC checkpoint carries no useful
+        # optimiser or schedule state, and its env spaces must match this run's.
+        from stable_baselines3 import PPO as _PPO
+        donor = _PPO.load(args.init_from, device=device,
+                          custom_objects=INFERENCE_CUSTOM_OBJECTS)
+        model.policy.load_state_dict(donor.policy.state_dict())
+        print(f"  warm start   : policy weights from {args.init_from}", flush=True)
 
     n_params = sum(q.numel() for q in model.policy.parameters())
     print(f"  policy params: {n_params:,}\n", flush=True)
