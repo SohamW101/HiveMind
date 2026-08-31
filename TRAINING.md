@@ -52,19 +52,82 @@ A hobbled baseline would quietly flatter everything measured against it.
 ## 2. Quick start
 
 ```powershell
-# 1. sanity run at the easiest curriculum level - start here, see section 11
-.venv\Scripts\python.exe train.py --timesteps 400000 --worlds 12 --num-cartons 4
+# 1. are the incentives sane? six gates, under a minute. never skip this
+.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 1
 
-# 2. score the checkpoint against the baseline
-.venv\Scripts\python.exe scripts\run_evaluation.py --model models\<run>_final.zip --episodes 30
+# 2. does the pipeline run on this machine? prints the device and the fps
+.venv\Scripts\python.exe train.py --smoke --worlds 4
 
-# 3. the real run, with the curriculum walking 4 -> 8 -> 12
-.venv\Scripts\python.exe train.py --timesteps 2000000 --worlds 12 --num-cartons 4 --curriculum
+# 3. the real run - starts at ONE carton and promotes 1 -> 2 -> 4 -> 8 -> 12
+.venv\Scripts\python.exe -u train.py --run-name main --num-cartons 1 --curriculum ^
+    --timesteps 5000000 --worlds <physical cores> --checkpoint-every 25000
+
+# 4. what is the checkpoint actually doing?
+.venv\Scripts\python.exe scripts\probe_policy.py models\checkpoints\<file>.zip --num-cartons 1
+
+# 5. score it against the baseline
+.venv\Scripts\python.exe scripts\run_evaluation.py --model models\main_final.zip --episodes 30
 ```
 
-Do step 1 before step 3, and read §11 first. Four cartons is a 23-step task for greedy,
-so `success_rate` should lift off zero early. If it does not at that difficulty, the
-problem is not the difficulty and a longer run will not fix it.
+**Start at one carton, not four.** An episode ends only when *every* carton is delivered,
+so `success_rate` is a conjunction over four robots. At 4 cartons an untrained policy
+never satisfies it — 0 completions in 15 random episodes — and therefore never observes
+the +100 completion bonus at all. At 1 carton a random policy completes 33% of the time.
+Section 11 has the full story; it is the single reason four earlier runs learned nothing.
+
+---
+
+## 2b. Running the full campaign on another machine
+
+The plan is a **5,000,000-step curriculum run**. Everything here is what actually matters
+when the run is on a machine you are not sitting in front of.
+
+**Pick `--worlds` from physical cores, not from the GPU.** Each world is one PyBullet
+process on one core. Match the physical core count — oversubscribing threads makes
+throughput worse, not better. On 16 cores, expect 5M steps in roughly 3-5 hours.
+
+**Checkpoint often. This is not optional.**
+
+```powershell
+--checkpoint-every 25000
+```
+
+Two runs were interrupted at 215k and 102k steps and both lost *everything*, because the
+checkpoint interval was longer than the run survived. 25k costs a second of disk per save
+and buys back hours.
+
+**Install TensorBoard there.** It is deliberately not in `requirements.txt`, and training
+runs silently without curves when it is missing — exactly what you do not want on a
+machine you are checking in on remotely:
+
+```powershell
+.venv\Scripts\python.exe -m pip install tensorboard
+tensorboard --logdir tensorboard_logs
+```
+
+**Run it detached and unbuffered.** Without `-u` the output sits in a pipe buffer and an
+empty log looks identical to a hung run. It has happened here.
+
+**What to check, in order.** Reward is the *last* thing to look at — a rising reward curve
+is what fooled every earlier run:
+
+| signal | healthy | dead |
+|---|---|---|
+| `rollout/ep_len_mean` | falls below the cap early | pinned at the cap |
+| `rollout/success_rate` | leaves zero, then climbs | flat 0 |
+| `curriculum/target_cartons` | steps 1 → 2 → 4 → 8 → 12 | never moves |
+| `rollout/ep_rew_mean` | rises **and** the three above are moving | rises alone |
+
+**Kill rules.** If `ep_len_mean` has not left the cap by 100k steps, stop the run; it does
+not recover, and four runs proved that the expensive way. If the curriculum has not
+promoted past 1 carton by around 500k steps, stop and re-run the diagnostic in step 1
+before spending more compute on it.
+
+**Where it should get to.** At 1 carton, `success_rate` reached 0.40 with `ep_len` 44.1
+inside 92k steps on a modest CPU box, with mean episode reward positive for the first
+time. Promotion needs 70% rolling success over the last 100 episodes. **Levels 2 through
+12 have never been reached by any run**, so treat everything above 1 carton as genuinely
+unknown — that is what this 5M run exists to find out.
 
 ---
 
@@ -110,7 +173,7 @@ added after three training runs completed zero episodes; do not skip it.
 | `.venv\Scripts\python.exe smoke_test.py` | 16 PASS, 0 TODO, 0 FAIL |
 | `.venv\Scripts\python.exe scripts\verify_observations.py` | 53 passed, 0 failed |
 | `.venv\Scripts\python.exe scripts\verify_rewards.py` | 38 passed, 0 failed |
-| `.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 4` | 5 gates PASS |
+| `.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 1` | 6 gates PASS |
 | `.venv\Scripts\python.exe scripts\run_evaluation.py --baseline greedy --episodes 30` | makespan 23 / 58 / 97, 100% |
 
 ---
@@ -161,7 +224,7 @@ honest replacement is a real asymmetric critic — not more hyperparameter tunin
 --batch-size N      Minibatch size for the update. Default 1024.
 --seed N            Seeds the policy and the per-world warehouse generation.
 --max-steps N       Episode cap. Defaults per carton count: 150 / 250 / 400 at 4 / 8 / 12.
---num-cartons N     Cartons in play. Default 12; start at 4.
+--num-cartons N     Cartons in play. Default 12. Start at 1 - see section 2.
 --shaping-scale F   Strength of the potential-based shaping. Default 6.0.
 --no-shaping        Train the specification's sparse reward exactly. Ablations only.
 --gamma FLOAT       Discount. Default 0.99.
@@ -241,7 +304,30 @@ higher and falls back to CPU otherwise, and it **disables cuDNN** — a stabilit
 inherited from the single-agent phase that may hurt the LiDAR convolution on modern
 hardware. Benchmark both ways.
 
-**Prioritise core count over GPU** when choosing a machine for this.
+**Prioritise core count over GPU** when choosing a machine for this. If you are picking
+between a 32-core box with no GPU and an 8-core box with an A100, take the 32 cores.
+
+### Checklist for a GPU machine
+
+Run this before committing hours to it:
+
+```powershell
+.venv\Scripts\python.exe train.py --smoke --worlds 4
+```
+
+The first line of output is the device probe. Three ways it disappoints:
+
+1. **`No CUDA GPU detected`** — the CPU wheel of PyTorch is installed. Reinstall from the
+   index URL pytorch.org gives for that CUDA version (section 3).
+2. **`is below sm_70. Falling back to CPU`** — the card is too old. A GTX 1080 is sm_61
+   and gets nothing here. The run still works, just on CPU.
+3. **It says CUDA and the fps is no better than CPU.** Entirely possible and not a bug:
+   the policy is 227k parameters on a 177-float vector, so transfer overhead can exceed
+   the compute saved. Compare the `fps` line from both and use whichever wins.
+
+Note the probe **disables cuDNN** when it selects CUDA — a stability workaround inherited
+from the single-agent phase. It may now be costing throughput on the LiDAR convolution.
+If you are benchmarking anyway, that line in `hivemind_env/training.py` is worth toggling.
 
 ---
 
@@ -453,7 +539,7 @@ whether or not the robot moves, so it can never be the reason a policy refuses t
 ### Check the incentives before you train — it costs seconds
 
 ```powershell
-.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 4
+.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 1
 ```
 
 It prints the reward budget for `stay`, `random` and `greedy` side by side and gates on
@@ -467,7 +553,7 @@ across a redefinition.
 ### And check what a checkpoint actually does
 
 ```powershell
-.venv\Scripts\python.exe scripts\probe_policy.py models\<run>_final.zip --num-cartons 4
+.venv\Scripts\python.exe scripts\probe_policy.py models\<run>_final.zip --num-cartons 1
 ```
 
 Action mix, pickups, deliveries and collisions, deterministic and stochastic, with a
@@ -484,14 +570,18 @@ argmax is.
 ### Then run a canary, not a campaign
 
 ```powershell
-.venv\Scripts\python.exe -u train.py --run-name canary --timesteps 150000 --num-cartons 4 --worlds 10
+.venv\Scripts\python.exe -u train.py --run-name canary --timesteps 150000 --num-cartons 1 --curriculum --worlds 10 --checkpoint-every 25000
 ```
 
-Four cartons is a 23-step task for greedy, and the cap there is 150 steps. **Kill rule:
-if `ep_len_mean` has not dropped below the cap by 100k steps, the run is dead — stop it
-rather than letting it finish.** Three runs were allowed to finish before that rule
-existed. If `success_rate` does not lift off the floor at 4 cartons, the problem is not
-the difficulty.
+One carton is an ~8-step task for greedy and the cap there is 60 steps, so a canary shows
+its hand quickly. **Kill rule: if `ep_len_mean` has not dropped below the cap by 100k
+steps, the run is dead — stop it rather than letting it finish.** Four runs were allowed
+to finish before that rule existed.
+
+A canary at 4 cartons is *not* a valid substitute, and that was the trap: an untrained
+policy cannot complete a 4-carton episode at all, so `success_rate` stays at exactly zero
+no matter how much the policy improves underneath. One carton is the smallest task where
+the metric can move.
 
 ## 12. Troubleshooting
 
@@ -534,7 +624,32 @@ decentralised critic in §4 is the first thing to replace), then try a longer ru
 
 ---
 
-## 13. After this run
+## 13. Where this actually stands
+
+Worth being blunt about, because the numbers above describe a system that is fixed but
+not yet finished.
+
+**Established.** The environment, the reward, and the diagnostics are verified: 38 reward
+checks, 53 observation checks, 16 smoke checks, and a greedy baseline of 23 / 58 / 97
+steps at 4 / 8 / 12 cartons with 30/30 completion at every level. Seven defects that made
+learning impossible have been found, fixed, and each has a measurement attached.
+
+**Demonstrated once, briefly.** At 1 carton a policy reached `success_rate` 0.40 with
+`ep_len` 44.1 in 92k steps, mean episode reward positive. That run was interrupted and
+checkpointed nothing, so the artefact does not exist any more — only the log does.
+
+**Not established at all.** No policy has been trained past 1 carton. The curriculum has
+never promoted. Nothing has been scored against the greedy baseline. **No learned policy
+in this repository has ever completed a 12-carton episode**, and the headline claim —
+beating makespan 97 — has not been attempted, let alone met.
+
+Any write-up should say that plainly. Phase 1's `docs_analysis` set its standard with a
+document that openly reported the environment forcing an action the policy was then
+measured on; matching that standard matters more here than a confident-sounding number.
+
+---
+
+## 14. After this run
 
 The no-communication policy is the control condition. The contribution is the comparison
 against a communicating policy: a 16-token broadcast filling the reserved message slots,
