@@ -207,6 +207,30 @@ _SUPERSEDED_DIMS = {
 
 # Carton status values. Evenly spaced across [0, 1] - see the note above about
 # this being ordinal rather than categorical.
+# Curriculum ladder: difficulty level -> how many cartons are in play. Mirrored by
+# hivemind_env.training.CURRICULUM_CARTONS, which drives promotion.
+CURRICULUM_CARTONS = {1: 4, 2: 8, 3: 12}
+
+# Episode cap per curriculum level, roughly 3x the greedy baseline's makespan at each
+# (23.0 / 59.1 / 97.6 over 30 seeds). A cap far above the job length is not free: the
+# time penalty accrues, the makespan bonus is normalised by it, and every surplus step
+# is another opportunity to collide. 400 at 4 cartons was 17x greedy and cost -18 of
+# time penalty per episode against a job that finishes in 24 steps.
+MAX_STEPS_BY_CARTONS = {1: 60, 2: 90, 4: 150, 8: 250, 12: 400}
+
+
+def max_steps_for(num_cartons):
+    """
+    Episode cap for a carton count. Interpolates upward for counts not on the ladder
+    so an arbitrary --num-cartons still gets a sane cap rather than the full-task one.
+    """
+    n = NUM_CARTONS if num_cartons is None else int(num_cartons)
+    for cartons in sorted(MAX_STEPS_BY_CARTONS):
+        if n <= cartons:
+            return MAX_STEPS_BY_CARTONS[cartons]
+    return MAX_STEPS_BY_CARTONS[max(MAX_STEPS_BY_CARTONS)]
+
+
 CARTON_AVAILABLE = 0.0
 CARTON_CLAIMED_BY_ME = 1.0 / 3.0
 CARTON_CLAIMED_BY_OTHER = 2.0 / 3.0
@@ -282,6 +306,71 @@ IDLE_SPEED_THRESHOLD = 0.1
 # where it can legally deliver is not also charged for idling there.
 DEPOT_RADIUS_CELLS = 1.5
 
+# ---------------------------------------------------------------------------
+# Potential-based reward shaping - an ADDITION to the specification's table
+# ---------------------------------------------------------------------------
+# The specification's reward is sparse: nothing pays until a carton is picked up, and
+# the large terms only pay on completion. That is unlearnable from scratch here, and
+# it is not a guess - a 5,013,504-step run completed zero episodes out of roughly
+# 2,500 and converged to a mean episode reward of -103, which is BELOW the -94 a robot
+# scores by standing still for the whole episode. It had correctly learned that moving
+# costs more in collisions than delivery pays.
+#
+# The fix is potential-based shaping (Ng, Harada & Russell 1999):
+#
+#     F(s, s') = Phi(s') - Phi(s)
+#
+# with Phi = -(work remaining), measured in cartons. It cannot be farmed by hovering
+# because the sum telescopes to Phi(end) - Phi(start) regardless of the path taken
+# between them. See _potential() for the exact form and _shaping_reward() for why the
+# gamma of the textbook statement is 1 here.
+#
+#     R_total_i = 0.90 * R_shared + 0.10 * R_individual_i + F_i
+#
+# F_i is OUTSIDE the 90/10 split. The split, and every R_* constant above, are the
+# specification's and are untouched; this line is the only place the specification's
+# S3.3 formula is extended, and it is extended by an added term rather than by
+# retuning anything inside it.
+#
+# THE FIRST VERSION OF THIS WAS WRONG IN TWO WAYS, both measured on 2026-08-31:
+#   - Phi was plain distance to the current objective, which jumped downward when
+#     `is_carrying` flipped, so completing a pickup scored NEGATIVE total reward.
+#   - F was added inside the 0.10 individual bucket, so a scale of 15.0 delivered 1.5.
+# Both are described where they were fixed.
+#
+# THE SCALE IS SET BY ONE MEASURED QUANTITY: the expected value of a movement action.
+#
+#     EV(move) = shaping gain per cell  -  P(collision | move) x 4.5  -  time penalty
+#
+# Only movement can collide. Turning, staying, PICKUP and DROP cannot, so the collision
+# penalty is a risk premium on the single action class that makes progress - and when
+# that premium exceeds the gain, the optimal policy is to turn, grab, and stand still.
+#
+# That is not hypothetical. At scale 6.0 a move was worth -0.227, and the canary run
+# went to `stay` 100% under argmax while still turning 41% and pressing PICKUP 21% under
+# sampling, with fwd 2% / back 1%. It had learned the correct lesson from a wrong reward.
+#
+#     scale   per-cell gain   EV(move), random play   EV(move), dispersed
+#       6.0       +0.150             -0.379                 -0.134
+#      20.0       +0.499             -0.030                 +0.215
+#      30.0       +0.750             +0.221                 +0.466
+#
+# P(collision | move) is 0.108 under random play and 0.053 once robots have spread out
+# (measured in thirds of an episode: it peaks at 0.146 mid-episode when random walkers
+# jam the aisles; greedy achieves 0.031). The scale is set against the pessimistic
+# figure because that is the regime PPO starts in, and the margin widens on its own as
+# the policy stops colliding.
+#
+# A scale this large is safe for a specific reason: with the gamma of the shaping term
+# at 1, the episode total telescopes EXACTLY to scale x (Phi_end - Phi_start),
+# independent of the path taken. Raising it changes gradient magnitude and nothing else,
+# and no trajectory can farm it. Re-run scripts/diagnose_incentives.py after any change
+# to Phi - none of this arithmetic survives a redefinition.
+#
+# Set shaping=False to train against the specification's reward exactly. Expect it not
+# to learn.
+SHAPING_SCALE_DEFAULT = 30.0
+
 
 def _build_slices():
     """Named slices in layout order. Nothing else in this file indexes by number."""
@@ -344,8 +433,28 @@ class HiveMindMultiAgentEnv(gym.Env):
 
     def __init__(self, render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM,
                  show_lidar=None, obs_size=None, idle_penalises_turning=True,
-                 lidar_noise=True, substeps=None):
+                 lidar_noise=True, substeps=None, max_steps=None,
+                 num_cartons=None, shaping=True,
+                 shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99):
         super().__init__()
+
+        # How many of the NUM_CARTONS slots actually carry a carton this episode.
+        # The observation always reserves all 12 - the width is pinned - so a smaller
+        # task marks the unused slots delivered from the start rather than shrinking the
+        # vector, and a checkpoint survives a difficulty change.
+        #
+        # None means the full 12. The curriculum sets this attribute directly; until
+        # 2026-08-31 the callback promoted a `difficulty_level` that nothing in the
+        # world ever read, so it had no effect on anything.
+        self.num_cartons = num_cartons
+
+        # Potential-based reward shaping (Ng, Harada & Russell). See _shaping_reward.
+        # Off by default it would be honest to the specification; on by default it is
+        # honest to the fact that the unshaped reward provably cannot be learned from
+        # here - a 5M-step run scored below the do-nothing floor.
+        self.shaping = shaping
+        self.shaping_scale = float(shaping_scale)
+        self.gamma = float(gamma)
         # Physics substeps per environment step: a one-cell move is executed by
         # teleporting the robot across this many resetBasePositionAndOrientation +
         # stepSimulation pairs.
@@ -438,7 +547,27 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.depot_id = None
         self.obstacle_ids = []
         self.depot_pos_grid = (0, 0)
-        self.max_steps = 2000
+        # Episode budget. Was 2000 until 2026-08-31, which was actively harmful:
+        # greedy finishes in 97.6 steps on average and 123 at worst, so 2000 was 16x
+        # more than the task needs. Two things went wrong at that length.
+        #
+        #   1. With gamma = 0.99 the terminal rewards are mathematically invisible.
+        #      0.99^98 = 0.37, but 0.99^2000 = 1.9e-9 - the +100 completion bonus and
+        #      the makespan bonus, the two largest terms in the whole reward table,
+        #      discount to nothing from the start of an episode that long.
+        #   2. Every episode is 2000 steps of mostly-noise, so a fixed compute budget
+        #      buys very few episodes and credit assignment has to span the whole thing.
+        #
+        # A 5M-step run at 2000 completed exactly zero episodes out of ~2,500.
+        # 400 leaves 3.2x headroom over greedy's worst observed episode.
+        #
+        # The cap now scales with the carton count. 400 at 4 cartons is 17x greedy's
+        # 23.7, so every episode dragged -18 of time penalty behind a job that finishes
+        # in 24 steps, and each of those wasted steps is another chance to collide.
+        # MAX_STEPS_BY_CARTONS keeps roughly 3x headroom at each curriculum level; pass
+        # max_steps explicitly to override it.
+        self.max_steps = int(max_steps) if max_steps is not None \
+            else max_steps_for(self.num_cartons)
         self.current_step = 0
 
     def _grid_to_world(self, r, c):
@@ -626,11 +755,70 @@ class HiveMindMultiAgentEnv(gym.Env):
             )
         self.resource_slot = {rid: i for i, rid in enumerate(self.all_resource_ids)}
 
+        # Where every carton STARTS, captured before the curriculum removes any. These
+        # are the aisle gaps, and they stay walkable whether or not a carton sits in
+        # them - anything deriving a shelf map from live carton positions would wall off
+        # the gaps of the cartons the curriculum took out.
+        self.carton_home_cells = []
+        for rid in self.all_resource_ids:
+            p_, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+            self.carton_home_cells.append(self._world_to_grid(p_[0], p_[1]))
+
+        # Cells a robot cannot enter. Shelf rows are the odd grid rows; every cell in
+        # them is solid shelf except the two gaps, which is where the cartons start.
+        #
+        # This used to live in greedy.py and nowhere else, because the env let robots
+        # drive into shelves and simply charged the collision. That was measured on
+        # 2026-08-31 and reversed: a random policy took 105.8 collision events per
+        # episode, 93.8 of them robot-vs-shelf, while the greedy controller took
+        # exactly 0.0. At -5.0 shared that is -1.19 reward/agent/step for moving
+        # against -0.045 for standing still, so the only thing PPO could learn was to
+        # freeze - which is exactly what it did, three runs running. The penalty was
+        # not teaching shelf avoidance; it was taxing exploration for a mistake the
+        # optimal policy never makes.
+        #
+        # Blocking the move instead costs the spec's -0.5 invalid action, the same as
+        # driving off the grid already did, and leaves every reward constant untouched.
+        # Robot-robot collisions are unaffected and still cost -5.0 per the spec.
+        _gaps = set(self.carton_home_cells)
+        self.blocked_cells = {
+            (r, c)
+            for r in range(1, self.grid_size - 1, 2)
+            for c in range(1, self.grid_size - 1)
+            if (r, c) not in _gaps
+        }
+
+        # Curriculum: keep only `active` cartons in play. The rest are removed from the
+        # world and marked delivered, so termination fires when the active ones are
+        # done. The observation keeps all 12 slots either way - inactive ones read
+        # "delivered" and report the depot as their position - so the pinned width and
+        # every trained checkpoint survive a difficulty change.
+        # None means the full task. The curriculum must opt in explicitly by setting
+        # `num_cartons` - deriving it from difficulty_level instead would have silently
+        # changed what the verifiers and the greedy baseline measure, since
+        # difficulty_level defaults to 1.
+        active = NUM_CARTONS if self.num_cartons is None else self.num_cartons
+        active = max(1, min(int(active), NUM_CARTONS))
+        self.active_cartons = active
+
+        if active < NUM_CARTONS:
+            # Drop from the end of the fixed order, so slot i means the same carton at
+            # every difficulty and a policy does not have to relearn the indexing.
+            for slot in range(active, NUM_CARTONS):
+                rid = self.all_resource_ids[slot]
+                pb.removeBody(rid, physicsClientId=self.client_id)
+                self.resource_ids.remove(rid)
+                self.delivered[slot] = True
+
         # Baseline for the displacement-based velocity; the first observation of an
         # episode therefore reports zero velocity, which is true.
         self._prev_xy = self._current_xy()
         self._velocity = [(0.0, 0.0)] * self.num_agents
         self._lidar_cache = None
+
+        # Baseline for potential-based shaping. Must be sampled after the curriculum has
+        # removed inactive cartons, or the first step pays a spurious jump.
+        self._prev_potential = [self._potential(i) for i in range(self.num_agents)]
 
         return self._get_obs(), self._get_info()
 
@@ -707,18 +895,19 @@ class HiveMindMultiAgentEnv(gym.Env):
             
             if action == 0:  # Forward
                 nxt = (pos[0] + self.cell_size * math.cos(yaw), pos[1] + self.cell_size * math.sin(yaw), pos[2])
-                if self._in_bounds(nxt[0], nxt[1]):
+                if self._can_enter(nxt[0], nxt[1]):
                     target_state['pos'] = nxt
                     target_state['wheel_delta'] = 0.119
                 else:
-                    # Driving off the grid is an invalid action (spec S3.2). The move is
-                    # refused rather than executed - nothing in the world model gives
-                    # meaning to a robot outside the arena, and letting one teleport past
-                    # the boundary wall would corrupt every downstream metric.
+                    # Driving off the grid, or into a shelf, is an invalid action (spec
+                    # S3.2). The move is refused rather than executed - nothing in the
+                    # world model gives meaning to a robot outside the arena, and letting
+                    # one teleport past the boundary wall would corrupt every downstream
+                    # metric. See `blocked_cells` in reset() for why shelves joined it.
                     invalid_action[i] = True
             elif action == 1:  # Backward
                 nxt = (pos[0] - self.cell_size * math.cos(yaw), pos[1] - self.cell_size * math.sin(yaw), pos[2])
-                if self._in_bounds(nxt[0], nxt[1]):
+                if self._can_enter(nxt[0], nxt[1]):
                     target_state['pos'] = nxt
                     target_state['wheel_delta'] = -0.119
                 else:
@@ -907,6 +1096,20 @@ class HiveMindMultiAgentEnv(gym.Env):
         r, c = self._world_to_grid(x, y)
         return 0 <= r < self.grid_size and 0 <= c < self.grid_size
 
+    def _can_enter(self, x, y):
+        """
+        Is this world position a cell a robot may move into - in bounds and not shelf?
+
+        Note what this does NOT include: other robots. Two robots may still occupy the
+        same cell and are still charged the spec's -5.0 shared collision for it. That
+        stays penalise-and-continue, because unlike a shelf it is a genuinely joint
+        mistake and avoiding it is part of the coordination problem being studied.
+        """
+        r, c = self._world_to_grid(x, y)
+        if not (0 <= r < self.grid_size and 0 <= c < self.grid_size):
+            return False
+        return (r, c) not in self.blocked_cells
+
     def _detect_collisions(self):
         """
         Contacts that count as collisions, as a set of hashable keys.
@@ -968,6 +1171,94 @@ class HiveMindMultiAgentEnv(gym.Env):
         dep, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
         x, y, _ = self._canonical_pose(agent_idx)
         return math.hypot(x - dep[0], y - dep[1]) <= self.cell_size * DEPOT_RADIUS_CELLS
+
+    def _potential(self, agent_idx):
+        """
+        Phi(s) for one robot: minus the work left to do, in units of cartons.
+
+            Phi_i = -( n_undelivered
+                       + (0.5 if not carrying else 0.0)
+                       + d_i(objective) / (2 * span) )
+
+        Objective is the depot while carrying, the nearest available carton otherwise.
+
+        WHY IT IS SHAPED LIKE THIS, AND NOT AS PLAIN DISTANCE
+
+        It was plain distance until 2026-08-31 - just `-d(objective)/span`, with the
+        objective switching from carton to depot the moment `is_carrying` flipped. That
+        made Phi jump discontinuously downward at exactly the transition the task is
+        built around, so **picking up a carton was punished**. Measured on a perfect
+        greedy episode, every one of the four pickups scored a negative total reward:
+
+            step 5  agent0  PICKUP  shaping -5.222  ->  total -0.469
+            step 5  agent1  PICKUP  shaping -1.599  ->  total -0.107
+            step 5  agent3  PICKUP  shaping -4.520  ->  total -0.399
+            step 6  agent2  PICKUP  shaping -7.507  ->  total -0.698
+
+        The spec's +1.0 own-pickup reward, weighted to +0.1, could not survive it.
+
+        The 0.5 term is the fix: not carrying is half a carton's worth of work away from
+        carrying, so completing a pickup RAISES Phi by `0.5 - d_depot/(2*span)`, which is
+        non-negative because a distance cannot exceed the span. The n_undelivered term
+        does the same job for the delivery transition, paying for `carrying` flipping
+        back to False: a delivery raises Phi by `0.5 - d_next/(2*span)`, also
+        non-negative. Both are proved by assertion in scripts/verify_rewards.py.
+
+        It also fixes a second, quieter failure. The old Phi returned 0.0 for any
+        non-carrying robot once every carton was claimed - and at 4 cartons with 4
+        robots that is true from step 6 onward, so the shaping gradient vanished for
+        most of the episode. n_undelivered keeps moving until the job is done.
+        """
+        x, y, _ = self._canonical_pose(agent_idx)
+        n_left = sum(1 for slot in range(self.active_cartons) if not self.delivered[slot])
+
+        if self.is_carrying[agent_idx]:
+            dep, _ = pb.getBasePositionAndOrientation(
+                self.depot_id, physicsClientId=self.client_id
+            )
+            d = math.hypot(x - dep[0], y - dep[1])
+            handoff = 0.0
+        else:
+            best = None
+            for slot, rid in enumerate(self.all_resource_ids):
+                if self.delivered[slot] or rid not in self.resource_ids:
+                    continue
+                p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+                dd = math.hypot(x - p[0], y - p[1])
+                if best is None or dd < best:
+                    best = dd
+            d = 0.0 if best is None else best
+            handoff = 0.5
+
+        return -(n_left + handoff + d / (2.0 * self._arena_span))
+
+    def _shaping_reward(self):
+        """
+        F_i = scale * (Phi_i(s') - Phi_i(s)), one per robot.
+
+        WHY THERE IS NO GAMMA HERE
+
+        The textbook form is `gamma * Phi(s') - Phi(s)` (Ng, Harada & Russell), which is
+        exactly policy-invariant for the gamma-discounted objective. Phi is negative
+        everywhere here, so that form carries a per-step drift of `-(1 - gamma) * Phi`,
+        which is POSITIVE and largest when the robot is furthest from finishing - a
+        standing bonus for loitering, worth about +0.005 * scale every step. With a
+        400-step cap and truncation that is not a rounding error, and it points the
+        wrong way. Using gamma = 1 in the shaping term drops the drift; it costs strict
+        policy-invariance, which is why shaping is declared as a deviation from the
+        specification's reward table wherever these runs are reported.
+
+        `_prev_potential` holds Phi at the previous state and is refreshed here, so this
+        must be called exactly once per step, after the physics has settled.
+        """
+        out = np.zeros(self.num_agents, dtype=np.float64)
+        if not self.shaping:
+            return out
+        for i in range(self.num_agents):
+            phi = self._potential(i)
+            out[i] = self.shaping_scale * (phi - self._prev_potential[i])
+            self._prev_potential[i] = phi
+        return out
 
     def _compute_rewards(self, actions, did_pickup, did_deliver, invalid_action,
                          collisions, terminated):
@@ -1034,7 +1325,26 @@ class HiveMindMultiAgentEnv(gym.Env):
             individual[i] = sum(terms.values())
             individual_terms.append(terms)
 
-        rewards = SHARED_WEIGHT * shared + INDIVIDUAL_WEIGHT * individual
+        # ---- Potential-based shaping (NOT in the specification) ---------------
+        # R_i = 0.90 * R_shared + 0.10 * R_individual_i + F_i
+        #
+        # F_i sits OUTSIDE the 90/10 split, which it did not until 2026-08-31. It was
+        # being added to the individual bucket and therefore multiplied by 0.10, so
+        # `shaping_scale=15.0` was silently delivering 1.5 - about +0.115 per cell of
+        # approach against a -4.5 collision. Nothing said so; the constant simply did
+        # not mean what it read as. Outside the split it does.
+        #
+        # The split itself is the spec's and is untouched: every R_* constant and both
+        # weights are exactly as specified. Shaping is our own addition and is declared
+        # as such in TRAINING.md - see _shaping_reward() for the gamma decision.
+        shaping = self._shaping_reward()
+
+        rewards = SHARED_WEIGHT * shared + INDIVIDUAL_WEIGHT * individual + shaping
+        for i in range(self.num_agents):
+            if shaping[i] != 0.0:
+                # Recorded in the individual breakdown for readability only. It is not
+                # part of the individual total and is not weighted by it.
+                individual_terms[i]["shaping (unweighted)"] = shaping[i]
 
         breakdown = {
             "shared_terms": shared_terms,
@@ -1287,10 +1597,14 @@ class HiveMindMultiAgentEnv(gym.Env):
         return {
             "robot_pos": poses,
             "remaining_resources": len(self.resource_ids) + sum(self.is_carrying),
-            # Delivered count is what termination and the evaluation harness both key
-            # off, so it is reported explicitly rather than inferred.
-            "delivered": sum(self.delivered),
+            # Deliveries the robots actually made this episode. Curriculum-disabled
+            # slots are marked delivered at reset so termination works, but counting
+            # them here reported "8 delivered" on a fresh 4-carton reset - true for the
+            # flag array, actively misleading as a metric.
+            "delivered": sum(self.delivered[:self.active_cartons]),
+            "delivered_flags_total": sum(self.delivered),
             "obs_dim": self.obs_dim,
+            "active_cartons": self.active_cartons,
             "is_carrying": list(self.is_carrying),
             "shelf_contacts": self._shelf_contacts(),
             # Normalised scans as the policy sees them, plus the same thing in metres

@@ -160,8 +160,18 @@ def _distance_travelled(prev_positions, positions):
 
 def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_mode,
                    max_steps=None, verbose=True):
+    # `num_cartons` is what makes the level real, and it was missing until 2026-08-31.
+    # This passed difficulty_level only - which the world stores and nothing reads - so
+    # every level here ran the full 12 cartons while the summary table dutifully
+    # labelled them 4, 8 and 12. A cross-level run reported makespan 98 / 102 / 97 and
+    # "Delivered 12/12" at every row, which is the tell: the levels were identical.
+    #
+    # Anything measured through this harness before that date is a 12-carton number
+    # whatever its label said.
+    cartons = CURRICULUM_CARTONS.get(difficulty, difficulty)
     env = HiveMindMultiAgentEnv(
-        render_mode=None, difficulty_level=difficulty, obs_dim=obs_dim
+        render_mode=None, difficulty_level=difficulty, obs_dim=obs_dim,
+        num_cartons=cartons,
     )
     # PORT NOTE - this guard is new and it is not optional.
     #

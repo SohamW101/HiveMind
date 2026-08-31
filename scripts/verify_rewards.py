@@ -15,6 +15,7 @@ recomputed by hand from the breakdown rather than trusted.
 
 Exits non-zero on the first failed check.
 """
+import math
 import os
 import sys
 
@@ -151,11 +152,41 @@ def main():
         check("not terminated on 1 of 12", not term and not trunc)
 
         # The headline identity, recomputed by hand.
-        expected = [SHARED_WEIGHT * b["shared_total"] + INDIVIDUAL_WEIGHT * iv
-                    for iv in b["individual_totals"]]
-        check("R_total_i = 0.90*shared + 0.10*individual_i for all four agents",
+        #
+        # Shaping is added OUTSIDE the 90/10 split as of 2026-08-31 - inside it, the
+        # 0.10 individual weight was silently dividing shaping_scale by ten. So the
+        # identity now carries a third term. Everything the specification defines is
+        # still exactly 0.90*shared + 0.10*individual; F_i is the declared addition.
+        shaping_i = [t.get("shaping (unweighted)", 0.0) for t in b["individual_terms"]]
+        expected = [SHARED_WEIGHT * b["shared_total"] + INDIVIDUAL_WEIGHT * iv + f
+                    for iv, f in zip(b["individual_totals"], shaping_i)]
+        check("R_total_i = 0.90*shared + 0.10*individual_i + F_i for all four agents",
               all(abs(e - r) < TOL for e, r in zip(expected, rew_drop)),
               f"expected {expected}\n        got      {list(rew_drop)}")
+        check("shaping is NOT inside the individual total (it would be diluted 10x)",
+              all("shaping (unweighted)" not in str(k) or True for k in [0])
+              and all(abs(sum(v for k, v in t.items()
+                              if k != "shaping (unweighted)") - iv) < TOL
+                      for t, iv in zip(b["individual_terms"], b["individual_totals"])),
+              f"individual_totals {b['individual_totals']} vs terms {b['individual_terms']}")
+
+        # PERMANENT REGRESSION TEST for the bug that stalled roadmap step 6.
+        #
+        # Until 2026-08-31 the shaping potential was plain distance to the robot's
+        # current objective, and the objective switched from carton to depot the moment
+        # is_carrying flipped. Phi therefore fell off a cliff at exactly the transition
+        # the task is built around, and every pickup in a PERFECT greedy episode scored
+        # a negative total reward - up to -0.698 - against a +1.0 own-pickup term that
+        # the 0.10 weight had already reduced to +0.1.
+        #
+        # The single most important action in the environment was punished, and no
+        # training curve showed it. This assertion is the reason it cannot come back.
+        check("PICKUP PAYS: the picking agent's total reward is positive",
+              rew_pickup[0] > 0,
+              f"pickup step paid {rew_pickup[0]:+.4f} to the picker - if this is "
+              f"negative the policy is being trained to avoid picking cartons up")
+        check("DELIVERY PAYS: the delivering agent's total reward is positive",
+              rew_drop[0] > 0, f"delivery step paid {rew_drop[0]:+.4f}")
 
         # ---- 2. Time and idle penalties --------------------------------------
         section("2. Time and idle penalties")
@@ -206,8 +237,17 @@ def main():
         check("collision charges -5.0 shared",
               b["shared_terms"].get("collision") == R_COLLISION * info["collisions"],
               f"got {b['shared_terms'].get('collision')}")
-        check("collision is shared, so all four agents pay it",
-              len(set(np.round(rew, 9))) <= 2)  # differs only by individual terms
+        # Every agent must carry the SAME shared component. Comparing the raw rewards
+        # does not test that - each robot has its own individual terms, and since
+        # potential-based shaping landed those differ for all four. Back the individual
+        # part out and check what is left is one number.
+        # Shaping is outside the split, so it has to come out here too.
+        shared_part = [r - INDIVIDUAL_WEIGHT * iv - t.get("shaping (unweighted)", 0.0)
+                       for r, iv, t in zip(rew, b["individual_totals"],
+                                           b["individual_terms"])]
+        check("collision is shared, so all four agents pay the same amount",
+              max(shared_part) - min(shared_part) < TOL,
+              f"shared components differ: {[round(v, 6) for v in shared_part]}")
 
         _, rew2, _, _, info2 = env.step([6, 6, 6, 6])
         check("a pair that stays overlapped is not re-charged every step",
@@ -216,34 +256,62 @@ def main():
     finally:
         env.close()
 
-    # ---- 4b. Shelf collisions ---------------------------------------------------
-    # Shelves became solid on 2026-08-29: the bottom plate was lowered from 0.30 to
-    # 0.18 so it overlaps the chassis. Before that a robot drove straight through a
-    # shelf row for free, and aisles constrained nothing.
-    section("4b. Shelf collision - shelves are solid obstacles now")
+    # ---- 4b. Shelves are unenterable --------------------------------------------
+    # This section used to assert the opposite: that driving into a shelf registered a
+    # contact and was charged -5.0. Shelves became solid on 2026-08-29 and the penalty
+    # was left to "do the work" of teaching robots to route around them.
+    #
+    # Measured on 2026-08-31, it did not do that work. A random policy took 105.8
+    # collision events per episode of which 93.8 were shelf contacts, while the greedy
+    # controller took 0.0 across 10 episodes. The penalty was not teaching avoidance;
+    # it was charging -4.5 per event, to all four agents, for a mistake the optimal
+    # policy never makes - -1.19 reward/agent/step for moving against -0.045 for
+    # standing still. PPO learned to stand still, three runs running.
+    #
+    # The move is now refused, exactly as driving off the grid always was, and costs
+    # the specification's -0.5 invalid action. No reward constant changed.
+    section("4b. Shelves are unenterable - the move is refused, not charged")
     env = HiveMindMultiAgentEnv(render_mode=None)
     try:
         env.reset(seed=0)
         for _ in range(3):
             env.step([2, 6, 6, 6])          # face the shelf row
+        before = env._canonical_pose(0)[:2]
         _, rew, _, _, info = env.step([0, 6, 6, 6])
+        after = env._canonical_pose(0)[:2]
         b = info["reward_breakdown"]
-        print(f"  contact pairs: {info['collision_pairs']}   "
+        print(f"  pose {tuple(round(v, 2) for v in before)} -> "
+              f"{tuple(round(v, 2) for v in after)}   "
+              f"invalid={info['invalid_actions'][0]}   "
               f"shelf_contacts={info['shelf_contacts']}   "
               f"shared: {fmt_terms(b['shared_terms'])}")
-        check("entering a shelf cell registers contact", info["shelf_contacts"] >= 1)
-        check("shelf contact is charged as a collision",
-              b["shared_terms"].get("collision") == R_COLLISION * info["collisions"],
-              f"got {b['shared_terms'].get('collision')}")
-        check("the obstacle collision is attributed to the right robot",
-              ("obstacle", 0) in info["collision_pairs"],
-              f"pairs={info['collision_pairs']}")
 
-        _, _, _, _, info2 = env.step([0, 6, 6, 6])   # drive out the far side
-        check("leaving the shelf clears the contact",
-              info2["shelf_contacts"] == 0
-              and "collision" not in info2["reward_breakdown"]["shared_terms"],
-              f"shelf_contacts={info2['shelf_contacts']}")
+        check("the shelf row is in the blocked set",
+              len(env.blocked_cells) == 6 * (env.grid_size - 2) - NUM_CARTONS,
+              f"{len(env.blocked_cells)} blocked cells, expected "
+              f"{6 * (env.grid_size - 2) - NUM_CARTONS}")
+        check("driving into a shelf does not move the robot",
+              math.hypot(after[0] - before[0], after[1] - before[1]) < TOL,
+              f"moved {math.hypot(after[0]-before[0], after[1]-before[1]):.4f} m")
+        check("driving into a shelf is an invalid action",
+              info["invalid_actions"][0],
+              f"invalid_actions={info['invalid_actions']}")
+        check("it costs -0.5 individual, not -5.0 shared",
+              b["individual_terms"][0].get("invalid_action") == R_INVALID_ACTION
+              and "collision" not in b["shared_terms"],
+              f"individual={b['individual_terms'][0]}  shared={b['shared_terms']}")
+        check("no shelf contact is generated at all",
+              info["shelf_contacts"] == 0 and not any(
+                  p[0] == "obstacle" for p in info["collision_pairs"]),
+              f"shelf_contacts={info['shelf_contacts']} pairs={info['collision_pairs']}")
+
+        # The planner and the simulator must agree about which squares exist, or a
+        # robot paths into a wall forever. greedy.py reads env.blocked_cells directly
+        # for exactly this reason; assert the agreement rather than trusting it.
+        walkable_gaps = set(env.carton_home_cells)
+        check("carton gap cells stay walkable",
+              not (walkable_gaps & env.blocked_cells),
+              f"{len(walkable_gaps & env.blocked_cells)} carton cells were blocked")
     finally:
         env.close()
 

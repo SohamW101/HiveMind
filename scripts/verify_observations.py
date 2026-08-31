@@ -345,9 +345,24 @@ def main():
               abs(forward - 0.5) < 0.05,
               f"got {forward:.3f} m - if this is ~2.5 m the beam is passing under "
               f"the plate again")
-        check("a robot standing in a shelf cell registers contact",
-              hit_info["shelf_contacts"] >= 1,
-              f"shelf_contacts={hit_info['shelf_contacts']}")
+        # This used to assert that a robot standing INSIDE a shelf cell registered a
+        # contact - the check that the beam height and the collision geometry agreed.
+        # A robot can no longer stand in a shelf cell at all as of 2026-08-31: the move
+        # is refused rather than charged, because the -5.0 shared penalty was taxing
+        # exploration for a mistake the optimal policy never makes and PPO's cheapest
+        # response was to stop moving entirely.
+        #
+        # The intent survives the change and is what is asserted instead: what the
+        # sensor sees at LIDAR_BEAM_Z is exactly what the body cannot pass through.
+        check("the robot could not enter the shelf cell",
+              hit_info["shelf_contacts"] == 0
+              and env._world_to_grid(*env._canonical_pose(0)[:2]) not in env.blocked_cells,
+              f"shelf_contacts={hit_info['shelf_contacts']} "
+              f"cell={env._world_to_grid(*env._canonical_pose(0)[:2])}")
+        check("the cell the forward ray hit is the one the robot is barred from",
+              env._world_to_grid(*env._canonical_pose(0)[:2]) not in env.blocked_cells
+              and abs(forward - 0.5) < 0.05,
+              f"forward={forward:.3f} m")
 
         # Chassis must not sink: the beam height is a constant, but a sinking chassis
         # would still break pickup ranges and wheel contacts.

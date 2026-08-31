@@ -112,21 +112,12 @@ class GreedyController:
         env = self.env
         self.n = env.num_agents
 
-        # Cells a robot cannot occupy. Shelf rows are the odd grid rows; every cell in
-        # them is shelf except the two gaps, which is where the cartons start. Derived
-        # from the carton positions captured at reset rather than the live list, so the
-        # map does not change as cartons are delivered.
-        carton_cells = set()
-        for rid in env.all_resource_ids:
-            pos, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=env.client_id)
-            carton_cells.add(env._world_to_grid(pos[0], pos[1]))
-
-        self.blocked = {
-            (r, c)
-            for r in range(1, env.grid_size - 1, 2)
-            for c in range(1, env.grid_size - 1)
-            if (r, c) not in carton_cells
-        }
+        # Cells a robot cannot occupy. This used to be rebuilt here from
+        # env.carton_home_cells; the env now owns the same set and enforces it - a move
+        # into one is refused as an invalid action - so reading it is both shorter and
+        # the only way to be certain the planner and the simulator agree about which
+        # squares exist. A disagreement here is a robot pathing into a wall forever.
+        self.blocked = set(env.blocked_cells)
 
         # Carton positions are NOT cached. Robots shove cartons: they are solid bodies
         # and a robot teleporting into one pushes it. In one seed a carton travelled
