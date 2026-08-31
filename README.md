@@ -26,7 +26,7 @@ The short version:
 .venv\Scripts\python.exe scripts\run_evaluation.py --model models\<run>_final.zip --episodes 30
 ```
 
-**The target is makespan 98** — the greedy baseline, over 30 fixed seeds. A policy that
+**The target is makespan 97** — the greedy baseline, over 30 fixed seeds. A policy that
 does not beat it has not demonstrated anything.
 
 ## Current Status
@@ -55,7 +55,7 @@ solid obstacles that cost `-5.0` on contact, and ends episodes on completion or 
 limit. `train.py` trains a shared policy across all four robots and the saved checkpoint
 loads back into the evaluation harness.
 
-**The greedy baseline is the number to beat: makespan 98, 100% completion over 30 fixed
+**The greedy baseline is the number to beat: makespan 97, 100% completion over 30 fixed
 seeds.** No learned policy has been run against it yet, so no policy result exists.
 
 The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
@@ -238,6 +238,22 @@ and its breakdown every step, then verifies each term against the spec:
 .venv\Scripts\python.exe scripts/verify_rewards.py
 ```
 
+### Check the incentives before training
+
+Four training runs completed zero episodes before it became clear the reward, not the
+algorithm, was the problem. This prints the reward budget for `stay`, `random` and
+`greedy` side by side and gates on the failures that actually happened — chiefly *does a
+pickup pay?* (for a while it did not) and *is moving worth it?* (for a while it was not,
+because only movement can trigger the shared collision penalty, so the policy learned to
+turn and grab while never driving).
+
+```powershell
+.venv\Scripts\python.exe scripts/diagnose_incentives.py --num-cartons 4
+```
+
+Run it before any training run and after any change to the shaping potential. It takes
+under a minute; the failures it catches used to take half an hour each.
+
 ## Greedy baseline
 
 A scripted controller — each robot claims the nearest unclaimed carton, delivers it, and
@@ -251,12 +267,19 @@ valid.
 
 | Metric | Value |
 | --- | --- |
-| Makespan | mean 97.6, median 96.5, range 82–123 |
-| Completion | 30/30 seeds |
-| Distance | 230.9 m per episode |
-| Collisions | 6.3 per episode |
+| Cartons | Makespan | Completion | Distance | Collisions |
+| --- | --- | --- | --- | --- |
+| 4 | 23 | 30/30 | 40.5 m | 2.8 |
+| 8 | 58 | 30/30 | 122.4 m | 5.4 |
+| 12 | **97** | 30/30 | 232.6 m | 6.7 |
 
-Results are written to `docs_analysis/greedy_baseline.json`.
+Results are written to `docs_analysis/greedy_baseline_blocked.json`.
+
+Note on an earlier version of this table: until 2026-08-31 `run_evaluation.py` passed
+`difficulty_level` to the environment and never `num_cartons`, and the world stores that
+attribute without reading it — so **every level ran the full 12 cartons** while the
+summary labelled them 4, 8 and 12. Any per-level number produced by that harness before
+then is a 12-carton number whatever its row said.
 
 ## Training in depth
 
@@ -306,7 +329,9 @@ explains what that trade buys and when to replace it.
 ├── scripts/
 │   ├── run_evaluation.py       Fixed-seed evaluation harness; makespan is the headline
 │   ├── verify_observations.py  Drives a full delivery, checking every observation field
-│   └── verify_rewards.py       Prints reward per step and checks it against the spec
+│   ├── verify_rewards.py       Prints reward per step and checks it against the spec
+│   ├── diagnose_incentives.py  Reward budget for stay / random / greedy, with gates
+│   └── probe_policy.py         What a checkpoint actually does: action mix and verdict
 └── hivemind_env/
     ├── env.py                  Gymnasium environment and warehouse generation
     ├── greedy.py               Scripted baseline controller; the makespan to beat
