@@ -22,3 +22,6 @@ dev = [
     "black",
     "flake8"
 ]
+
+[tool.setuptools.packages.find]
+include = ["hivemind_env*"]
