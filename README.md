@@ -158,4 +158,4 @@ already there as `PPO_v1_5`.
 
 With the Single-Agent environment completely operational (perfect physics, LiDAR, and PBRS) and the PPO architecture established, future phases will focus on:
 1. **Multi-Agent Scaling**: Transitioning the single robot to a true "HiveMind" swarm of independent agents.
-2. **Advanced Physics Integration**: Introducing surface friction variations (mud, ice) to test robust routing policies.
+2. **Advanced Physics Integration**: Introducing surface friction variations (mud, ice) to test robust routing policies. 
