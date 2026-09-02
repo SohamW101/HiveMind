@@ -1,66 +1,31 @@
 """
-Subprocess-backed version of HiveMindSharedPolicyVecEnv - one OS process per warehouse.
+Same slot layout as `HiveMindSharedPolicyVecEnv`, one OS process per warehouse.
 
-WHY THIS EXISTS
+Training is PyBullet-bound, not GPU-bound. Measured over a 1,024 robot-step rollout on
+the in-process backend: env stepping 13.8 s (95%), policy forward 0.2 s, PPO update
+0.6 s. So the lever is more cores, and the in-process version cannot use them - it steps
+its worlds one after another in a single Python process, leaving 15 of 16 cores idle.
 
-Training is not GPU-bound, it is PyBullet-bound. Measured over a 1,024 robot-step
-rollout on the in-process vec env:
+A world-step costs ~55-60 ms of physics wherever it runs, so N worlds in N processes
+still cost ~60 ms of wall clock rather than N x 60. Expect sub-linear scaling - pipe
+traffic, spawn cost and memory bandwidth all take a cut - but it is the difference
+between a run measured in hours and one measured overnight.
 
-    env stepping   13.8 s   95.0%     rigid-body physics, one core
-    policy forward  0.2 s    1.3%
-    PPO update      0.6 s    3.8%     the only part a GPU touches
+Uses the "spawn" start method explicitly rather than the platform default, so the worker
+function is at module level and everything it receives is picklable. That also means
+anything constructing this class must sit behind an `if __name__ == "__main__":` guard.
 
-So the lever is not a faster accelerator, it is more cores - and the in-process version
-cannot use them, because it steps its worlds one after another in a single Python
-process. On a 16-core machine that leaves 15 idle.
-
-Each world here gets its own process. A world-step costs ~55-60 ms of physics wherever
-it runs, so N worlds in N processes still cost ~60 ms wall-clock rather than N x 60 ms.
-Expect sub-linear scaling in practice - pipe traffic, spawn cost and memory bandwidth
-all take a cut - but the difference is a run measured in hours rather than overnight.
-
-WHAT CROSSES THE PIPE
-
-Only what training needs. The worker builds the compact per-slot info dicts itself and
-sends those, rather than shipping the environment's full info back: that dict carries
-two LiDAR arrays per robot (576 floats per world per step) which exist for diagnostics
-and would otherwise be pickled, transferred and thrown away on every single step.
-
-WINDOWS
-
-Uses the "spawn" start method explicitly rather than the platform default. Spawn
-re-imports this module in the child, so the worker function is defined at module level
-and everything it receives is picklable. That also means anything constructing this
-class must sit behind an `if __name__ == "__main__":` guard.
+Use the in-process backend to debug: a traceback inside a worker is much harder to read.
 """
 from __future__ import annotations
 
 import multiprocessing as mp
 
 import numpy as np
-from gymnasium import spaces
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
 from hivemind_env.env import DEFAULT_OBS_DIM, NUM_AGENTS, HiveMindMultiAgentEnv
-
-
-def _slot_infos(info, world):
-    """The per-robot view of a world's info. Mirrors the in-process wrapper exactly."""
-    return [
-        {
-            "world": world,
-            "agent": a,
-            "is_success": info["is_success"],
-            "all_delivered": info["all_delivered"],
-            "delivered": info["delivered"],
-            "remaining_resources": info["remaining_resources"],
-            "collisions": info["collisions"],
-            "picked_up": info["pickups"][a],
-            "delivered_by_me": info["deliveries"][a],
-            "invalid_action": info["invalid_actions"][a],
-        }
-        for a in range(NUM_AGENTS)
-    ]
+from hivemind_env.vec_env import SlotLayout, single_slot_spaces, slot_infos
 
 
 def _worker(remote, parent_remote, world, base_seed, env_kwargs):
@@ -84,7 +49,7 @@ def _worker(remote, parent_remote, world, base_seed, env_kwargs):
             if cmd == "step":
                 obs, rew, terminated, truncated, info = env.step(data)
                 done = bool(terminated or truncated)
-                infos = _slot_infos(info, world)
+                infos = slot_infos(info, world)
                 if done:
                     # SB3's auto-reset contract, applied inside the worker so the parent
                     # never has to know an episode boundary happened.
@@ -95,8 +60,7 @@ def _worker(remote, parent_remote, world, base_seed, env_kwargs):
                 remote.send((obs, np.asarray(rew, dtype=np.float32), done, infos))
 
             elif cmd == "reset":
-                obs, _ = env.reset(seed=next_seed())
-                remote.send(obs)
+                remote.send(env.reset(seed=next_seed())[0])
 
             elif cmd == "get_attr":
                 remote.send(getattr(env, data))
@@ -122,14 +86,8 @@ def _worker(remote, parent_remote, world, base_seed, env_kwargs):
         remote.close()
 
 
-class HiveMindSubprocVecEnv(VecEnv):
-    """
-    Drop-in replacement for HiveMindSharedPolicyVecEnv with one process per world.
-
-    Same slot layout - world-major, `NUM_AGENTS` slots per world - so a policy trained
-    against one backend loads and runs against the other. Use the in-process version for
-    debugging (a traceback in a worker is much harder to read) and this one to train.
-    """
+class HiveMindSubprocVecEnv(SlotLayout, VecEnv):
+    """Drop-in replacement for HiveMindSharedPolicyVecEnv with one process per world."""
 
     metadata = {"render_modes": []}
 
@@ -160,24 +118,12 @@ class HiveMindSubprocVecEnv(VecEnv):
             self.processes.append(proc)
             work_remote.close()
 
-        single_obs = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
-        single_act = spaces.Discrete(7)
-        super().__init__(self.num_worlds * NUM_AGENTS, single_obs, single_act)
+        self.comms = bool(env_kwargs.get("comms", False))
+        super().__init__(self.num_worlds * NUM_AGENTS,
+                         *single_slot_spaces(obs_dim, self.comms))
 
         self._obs = np.zeros((self.num_envs, obs_dim), dtype=np.float32)
 
-    # -- slot <-> (world, agent) ------------------------------------------------
-    def world_of(self, slot: int) -> int:
-        return slot // NUM_AGENTS
-
-    def agent_of(self, slot: int) -> int:
-        return slot % NUM_AGENTS
-
-    def _slots(self, world: int):
-        start = world * NUM_AGENTS
-        return range(start, start + NUM_AGENTS)
-
-    # -- VecEnv API -------------------------------------------------------------
     def reset(self):
         for remote in self.remotes:
             remote.send(("reset", None))
@@ -188,7 +134,7 @@ class HiveMindSubprocVecEnv(VecEnv):
         return self._obs.copy()
 
     def step_async(self, actions: np.ndarray) -> None:
-        actions = np.asarray(actions, dtype=np.int64).reshape(self.num_envs)
+        actions = self._reshape_actions(actions)
         # Fire every world before reading any reply - that overlap is the whole point.
         for w, remote in enumerate(self.remotes):
             remote.send(("step", actions[list(self._slots(w))]))
@@ -230,22 +176,6 @@ class HiveMindSubprocVecEnv(VecEnv):
                 proc.terminate()
         self.closed = True
 
-    # -- attribute plumbing -----------------------------------------------------
-    # SB3 addresses these per slot; the attributes live on the world.
-    def _worlds_for(self, indices):
-        if indices is None:
-            return list(range(self.num_worlds))
-        if isinstance(indices, int):
-            indices = [indices]
-        return sorted({self.world_of(i) for i in indices})
-
-    def _slot_indices(self, indices):
-        if indices is None:
-            return list(range(self.num_envs))
-        if isinstance(indices, int):
-            return [indices]
-        return list(indices)
-
     def get_attr(self, attr_name: str, indices=None) -> list:
         wanted = self._slot_indices(indices)
         cache = {}
@@ -266,9 +196,6 @@ class HiveMindSubprocVecEnv(VecEnv):
         for w in worlds:
             self.remotes[w].send(("env_method", (method_name, args, kwargs)))
         return [self.remotes[w].recv() for w in worlds]
-
-    def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
-        return [False] * len(self._slot_indices(indices))
 
     def __del__(self):
         try:

@@ -41,9 +41,8 @@ def emit(line):
 
 
 # -- Imports ------------------------------------------------------------------
-# PORT NOTE: `from hivemind_env.models import CustomCombinedExtractor` moved out of this
-# block. models.py is a 0-byte placeholder on this branch, so keeping it here made the
-# whole file exit(1) at the first import and no other check ever ran.
+# The extractor is imported later, not here: an import failure in this block exits(1)
+# before any other check runs.
 try:
     import numpy as np
     import torch  # noqa: F401  (imported for the version banner and the device probe)
@@ -51,14 +50,15 @@ try:
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor  # noqa: F401
     from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback  # noqa: F401
     from hivemind_env.env import (
+        DEFAULT_OBS_DIM,
+        NUM_AGENTS,
         OBS_DIM_V3,
         HiveMindMultiAgentEnv,
         describe_observation_layout,
     )
     from hivemind_env.training import (
-        DEFAULT_OBS_DIM,
-        NUM_AGENTS,
         CurriculumCallback,
+        MessageStatsCallback,  # noqa: F401
         get_device,
         linear_schedule,
     )

@@ -1,7 +1,7 @@
 """
 Drive one robot through a full delivery, printing the reward every step.
 
-The project roadmap, step 4: "Verify with play_multi.py before any training - drive one
+The project roadmap, step 4: "Verify with a scripted driver before any training - drive one
 bot through a full delivery and print the reward each step." This is that, plus a
 numeric check of every line of the reward table in
 MAWC_Technical_Specification.pdf section 3.
@@ -16,17 +16,12 @@ recomputed by hand from the breakdown rather than trusted.
 Exits non-zero on the first failed check.
 """
 import math
-import os
 import sys
 
-import numpy as np
 import pybullet as pb
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
 from hivemind_env.env import (
+    ACTION_NAMES,
     INDIVIDUAL_WEIGHT,
     NUM_CARTONS,
     R_ALL_DELIVERED,
@@ -41,7 +36,7 @@ from hivemind_env.env import (
     SHARED_WEIGHT,
     HiveMindMultiAgentEnv,
 )
-from play_multi import approach_cell, direction_for, path_between, resource_cells, shelf_cells
+from hivemind_env.gridnav import approach_cell, direction_for, path_between, resource_cells, shelf_cells
 
 TOL = 1e-9
 checks = {"pass": 0, "fail": 0}
@@ -56,7 +51,6 @@ def check(label, condition, detail=""):
         print(f"  FAIL  {label}" + (f"\n        {detail}" if detail else ""))
 
 
-ACTION_NAMES = {0: "fwd", 1: "back", 2: "turnL", 3: "turnR", 4: "PICKUP", 5: "DROP", 6: "stay"}
 
 
 def fmt_terms(d):

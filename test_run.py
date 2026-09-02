@@ -35,10 +35,16 @@ import numpy as np
 import pybullet as pb
 from stable_baselines3 import PPO
 
-from hivemind_env.env import NUM_AGENTS, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    ACTION_NAMES,
+    MESSAGE_MODES,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+    joint_from_slot_actions,
+    policy_uses_comms,
+)
 from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS
 
-ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
 
 
 def main():
@@ -55,6 +61,11 @@ def main():
                    help="fixed seed for episode 1; later episodes step upward from it")
     p.add_argument("--delay", type=float, default=0.03,
                    help="seconds to sleep per step so it is watchable; 0 for full speed")
+    p.add_argument("--message-mode", default="learned",
+                   choices=list(MESSAGE_MODES),
+                   help="Only meaningful for a checkpoint with a token head. Watch the "
+                        "same policy under 'learned' and then 'shuffled': if the robots "
+                        "behave identically, the channel is decoration.")
     p.add_argument("--headless", action="store_true",
                    help="no GUI - just the numbers")
     args = p.parse_args()
@@ -63,11 +74,18 @@ def main():
     print(f"Loading model weights from: {args.model}")
     model = PPO.load(args.model, custom_objects=INFERENCE_CUSTOM_OBJECTS, device="cpu")
 
+    # Whether the robots can talk is a property of the checkpoint, not a flag: a comms
+    # policy emits a token with every movement and a silent env rejects it outright.
+    comms = policy_uses_comms(model)
+
     print("Initializing environment...")
     env = HiveMindMultiAgentEnv(
         render_mode=None if args.headless else "human",
         num_cartons=args.num_cartons,
+        comms=comms, message_mode=args.message_mode, msg_dropout=0.0,
     )
+    if comms:
+        print(f"  comms     : ON, message_mode={args.message_mode}")
     print(f"  mode      : {'deterministic (argmax)' if deterministic else 'stochastic (sampled)'}")
     print(f"  cartons   : {env.active_cartons if hasattr(env, 'active_cartons') else args.num_cartons or 12}")
     print(f"  max steps : {env.max_steps}")
@@ -82,7 +100,7 @@ def main():
             obs, info = env.reset(seed=seed)
 
             if not args.headless:
-                # Top-down view, as in play_multi.py.
+                # Top-down view.
                 pb.resetDebugVisualizerCamera(
                     cameraDistance=16.0,
                     cameraYaw=0,
@@ -101,9 +119,10 @@ def main():
                 # obs is (4, 177) - one row per robot. PPO reads that as a batch of 4
                 # observations and returns 4 actions, which is exactly the joint action
                 # the env wants.
-                actions, _ = model.predict(obs, deterministic=deterministic)
-                actions = np.asarray(actions).reshape(-1)[:NUM_AGENTS].astype(int)
-                for a in actions:
+                raw, _ = model.predict(obs, deterministic=deterministic)
+                actions = joint_from_slot_actions(raw, NUM_AGENTS)
+                moves = actions[:, 0] if actions.ndim == 2 else actions
+                for a in moves:
                     counts[int(a)] += 1
 
                 obs, rewards, terminated, truncated, info = env.step(actions)

@@ -1,46 +1,39 @@
 """
-Feature extractor for the HiveMind observation.
+Feature extractor for the HiveMind observation: three branches over one flat vector.
 
-Roadmap step 6 asks for a shared actor and a centralised critic. What is built here is
-the shared half: one feature extractor, one actor and one critic, all sharing weights
-across the four robots via `HiveMindSharedPolicyVecEnv`. The critic is decentralised -
-it sees a single robot's observation. `hivemind_env/vec_env.py` explains at length why
-that is a tolerable starting point here (the observation is already close to global) and
-what to replace it with if it plateaus.
+    world    [0:57]     poses, velocities, carrying flags, carton status and positions,
+                        depot direction, elapsed time         -> MLP
+    lidar    [57:129]   72 range returns, angularly ordered   -> 1-D CNN
+    messages [129:177]  3 speakers x 16 one-hot tokens        -> MLP
 
-WHY A CUSTOM EXTRACTOR AT ALL
+Slices are read from OBS_SLICES, never from literals, so a layout change moves the data
+and the network together. Every dimension is derived from the observation space handed
+in - the CNN flatten width in particular, which is baked into the saved weights.
 
-The observation is a flat Box, so SB3's default MlpPolicy would accept it directly. It
-would also treat all 177 numbers as an unordered bag, which throws away the one piece of
-real structure in the vector: the 72 LiDAR returns are a *sequence*. Ray k and ray k+1
-point 3.8 degrees apart, so a wall spans a run of adjacent slots and a gap is a dip in
-that run. A 1-D convolution over the sweep can learn "obstacle to my left" once and apply
-it at every bearing; a dense layer has to learn it separately for all 72 inputs.
+WHY NOT THE DEFAULT MlpPolicy
 
-So the vector is split into three blocks and recombined:
+It would accept the flat Box directly and treat all 177 numbers as an unordered bag,
+throwing away the one piece of real structure: the LiDAR returns are a *sequence*. Rays
+k and k+1 point 3.75 degrees apart, so a wall spans a run of adjacent slots. A 1-D
+convolution learns "obstacle to my left" once and applies it at every bearing; a dense
+layer has to learn it separately for all 72 inputs.
 
-    world    [0:57]     pose, velocities, carrying flags, carton status and positions,
-                        depot direction, elapsed time            -> MLP
-    lidar    [57:129]   72 range returns, angularly ordered      -> 1-D CNN
-    messages [129:177]  3 robots x 16 tokens, all zero until step 7 -> MLP
+THE MESSAGE BRANCH IS DELIBERATELY UNCHANGED BY STEP 7
 
-The split is read from `OBS_SLICES`, never from literal indices, so a layout change
-moves the data and the network together.
+It was built to run on all-zero input while the slots were reserved, and step 7 filled
+them without touching a layer here. Two things depend on that: the silent and
+communicating runs share one architecture, so a difference between them is the channel
+and not capacity; and every pre-step-7 checkpoint still loads, because msg_net is
+Linear(48, 64) in those files already.
 
-THE FLATTEN-WIDTH TRAP, AGAIN
+The tempting change is to embed each speaker's 16-token block with ONE shared layer
+rather than a separate 48 -> 64 map - speaker-symmetric, 3x fewer parameters to learn,
+very likely better. It also reshapes the state dict and invalidates every checkpoint, so
+it is a deliberate V2 of this extractor with its own class. Do not make it here.
 
-Phase 1's extractor documented that its CNN flatten width was baked into `self.linear`,
-so a saved model could only ever be loaded into an env of the same observation size.
-That is still true here. The env pins the width and refuses a mismatch, which is the
-real defence; this class simply derives every dimension from the observation space it
-is handed rather than hard-coding anything, so it adapts if the pin is deliberately
-moved to a new version.
-
-MESSAGES ARE WIRED NOW, ZEROED
-
-The message branch exists and runs even though its input is all zeros, exactly as the
-observation reserves the slots. Step 7 fills them and the architecture does not change -
-which is what keeps the no-communication baseline comparable to the communicating run.
+With one-hot tokens msg_net's first Linear is an embedding table read three times:
+column (16b + k) is the vector for "speaker b said token k", so the learned protocol is
+inspectable in those weights and two synonymous tokens have near-identical columns.
 """
 from __future__ import annotations
 

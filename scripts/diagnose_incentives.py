@@ -1,66 +1,49 @@
 """
-What is the reward actually paying for? Answer in seconds, not in a training run.
+What is the reward actually paying for? Answered in seconds, not in a training run.
 
-WHY THIS EXISTS
+    scripts/diagnose_incentives.py --num-cartons 4
 
-Three training runs were spent discovering reward bugs that a thirty-second measurement
-would have caught:
+Three training runs were spent discovering reward bugs a thirty-second measurement would
+have caught:
 
-    5,013,504 steps, 12 cartons  ->  0 completions, reward -103 (below the -94 floor)
-      409,600 steps,  4 cartons  ->  0 completions, reward -16.5 (stay scores -17.2)
+    5,013,504 steps, 12 cartons -> 0 completions, reward -103 (below the -94 floor)
+      409,600 steps,  4 cartons -> 0 completions, reward -16.5 (stay scores -17.2)
 
-Both failed for reasons that are arithmetic, not stochastic. In the second, a random
-policy took 105.8 collision events per episode - 93.8 of them against shelving, which
-the greedy controller never touches once - at -4.5 each. That is -1.19 reward per agent
-per step for moving, against -0.045 for standing still. No amount of exploration beats a
-26x tax. And separately, the shaping term made every carton pickup score NEGATIVE, so
-the single most important action in the task was punished.
+Both failed for reasons that are arithmetic, not stochastic. A random policy took 105.8
+collision events per episode - 93.8 against shelving, which greedy never touches once -
+at -4.5 each: -1.19 reward per agent per step for moving against -0.045 for standing
+still. No amount of exploration beats a 26x tax. Separately, the shaping term made every
+pickup score NEGATIVE, punishing the single most important action in the task.
 
 Neither is visible in a TensorBoard curve. Both are obvious in this table.
 
-WHAT IT PRINTS
+For `stay`, `random` and `greedy` on the same seeds it prints reward per agent per
+episode and per step, collision events split robot-robot vs obstacle, pickups and
+deliveries, the total reward of a pickup and a delivery step with shaping broken out,
+and the per-cell shaping gain.
 
-For `stay`, `random` and `greedy` on the same seeds and settings:
-
-  - reward per agent per episode and per step
-  - collision events per episode, split robot-robot vs obstacle
-  - pickups and deliveries per episode
-  - the total reward of a pickup step and of a delivery step, shaping broken out
-  - the per-cell shaping gain against the per-step time penalty
-
-    .venv\\Scripts\\python.exe scripts/diagnose_incentives.py --num-cartons 4
-
-HOW TO READ IT
-
-The two gates at the bottom are the ones that matter. A PICKUP that does not pay, or a
-random policy scoring far below a do-nothing policy, means the reward is pointing
-somewhere other than the task - and training against it will produce a confident,
-well-converged policy that stands still.
-
-Passing these gates does NOT mean the policy will learn. It means the incentives are not
+The gates at the bottom are what matter. A pickup that does not pay, or a random policy
+scoring far below a do-nothing policy, means the reward points somewhere other than the
+task - and training against it produces a confident, well-converged policy that stands
+still. Passing them does NOT mean the policy will learn; it means the incentives are not
 the reason if it does not.
 """
 from __future__ import annotations
 
 import argparse
 import math
-import os
 import sys
 
 import numpy as np
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
-from hivemind_env.env import (  # noqa: E402
+from hivemind_env.env import (
     NUM_AGENTS,
     R_TIME_PENALTY,
     SHAPING_SCALE_DEFAULT,
     SHARED_WEIGHT,
     HiveMindMultiAgentEnv,
 )
-from hivemind_env.greedy import GreedyController  # noqa: E402
+from hivemind_env.greedy import GreedyController
 
 STAY_ACTION = 6
 

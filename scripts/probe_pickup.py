@@ -1,87 +1,60 @@
 """
 When a carton is in reach, does the policy actually press PICKUP?
 
-WHY THIS EXISTS
+    scripts/probe_pickup.py models/run_final.zip --num-cartons 12
+    scripts/probe_pickup.py --baseline greedy --num-cartons 12
 
-`probe_policy.py` answers "what does this checkpoint do?" at the level of a whole
-episode - action mix, pickups, deliveries. That is enough to separate standing still
-from thrashing, and it is not enough for the failure this script was written for:
+probe_policy.py answers "what does this checkpoint do?" across a whole episode, which
+separates standing still from thrashing but cannot see the failure this was written for:
+the robots drive to the carton and then stop. A policy that spends 95% of its steps
+driving and 5% standing beside a carton looks healthy in an episode-wide histogram
+whatever it does in the 5% that decide the task.
 
-    the robots drive to the carton and then stop, and never pick it up
+So this conditions on the one state that matters - not carrying, and some available
+carton inside the env's own pickup radius, which is exactly what step() checks.
 
-An episode-wide action histogram cannot see that. A policy that spends 95% of its steps
-driving and 5% standing next to a carton looks like a healthy driving policy in the
-aggregate, whatever it does in the 5% that decide the task.
-
-So this conditions on the one state that matters. A robot-step is an OPPORTUNITY when
-the robot is not carrying and some available carton is within the environment's pickup
-radius - which is exactly the condition `step()` checks before granting a pickup.
-Everything is reported conditioned on that state.
-
-NOT EVERY OPPORTUNITY SHOULD BE CONVERTED - MEASURE THE REFERENCE, DO NOT ASSUME IT
-
-The obvious headline, "what fraction of opportunities become pickups", is diluted by
-robots that are standing in range of a carton somebody else is going for. Greedy
-scores 55.6% at 1 carton for exactly that reason: three of the four robots are
-bystanders and correctly stand off. So conversion is reported, but the number that
-actually separates a working policy from a frozen one is OPPORTUNITY-STEPS PER PICKUP -
-how many robot-steps of standing in reach it takes to produce one pickup. Greedy's
-figure is printed by `--baseline greedy`; run it at your carton count before reading
-anything into a policy's.
+THE HEADLINE IS OPPORTUNITY-STEPS PER PICKUP, NOT CONVERSION. Raw conversion is diluted
+by robots standing in range of a carton somebody else is claiming: greedy scores only
+55.6% at 1 carton because three of the four are bystanders correctly standing off. Run
+`--baseline greedy` at your carton count before reading anything into a policy's number.
 
 WHAT THE ANSWER MEANS
 
-    no opportunities at all      the policy never reaches a carton. A different
-                                 problem - probe_policy.py is the right tool.
+  no opportunities         the policy never reaches a carton - probe_policy.py instead.
+  argmax ~0, sampled >0    ARGMAX COLLAPSE. The weights know something, the greedy read
+                           of them does not. mini_final.zip is DROP 76% under argmax and
+                           completes 0/10, while the same weights sampled complete 4/10.
+  both ~0                  the policy cannot tell it is in range. Note the observation
+                           asymmetry: the depot arrives as a RELATIVE offset (54:56) but
+                           carton positions are ABSOLUTE (30:54), and approaching needs
+                           neither - the shaping term computes the distance and pays it
+                           out - so a policy can learn the approach and never the
+                           trigger. Fixing that is a V4 observation, not a reward change.
+  both high, no delivery   the pickup fires and the freeze is later - look at what
+                           happens while carrying.
 
-    deterministic ~0, sampled >0 ARGMAX COLLAPSE. The weights know something; the
-                                 greedy read of them does not. Already documented on
-                                 this branch: mini_final.zip is DROP 76% / fwd 24%
-                                 under argmax and completes 0/10, while the same
-                                 weights sampled complete 4/10. If the test harness
-                                 passes deterministic=True, that alone explains a
-                                 freeze - test stochastically before changing anything.
-
-    both ~0                      the policy cannot tell that it is in range. Note what
-                                 the observation gives it: the depot arrives as a
-                                 RELATIVE offset (slice 54:56) but the twelve carton
-                                 positions are ABSOLUTE (slice 30:54). Approaching does
-                                 not need the difference - the shaping term computes the
-                                 distance and pays it out as reward - so a policy can
-                                 learn the approach perfectly and never learn the
-                                 trigger. That is an observation change (a V4), not a
-                                 reward change.
-
-    both high, still no delivery the pickup fires and the freeze is somewhere else -
-                                 look at what happens while carrying, or at the route
-                                 back to the depot.
-
-The reward is not on the list of suspects, and that is measured rather than assumed: at
-the moment a robot arrives beside a carton, PICKUP pays +9.8 to +14.4 against -0.047 for
-standing still. Confirm it for your own settings with diagnose_incentives.py.
-
-    .venv\\Scripts\\python.exe scripts/probe_pickup.py models/run_final.zip --num-cartons 12
-    .venv\\Scripts\\python.exe scripts/probe_pickup.py --baseline greedy --num-cartons 12
+The reward is not on the list of suspects, measured rather than assumed: beside a carton
+PICKUP pays +9.8 to +14.4 against -0.047 for standing still.
 """
 from __future__ import annotations
 
 import argparse
 import math
 import os
-import sys
 
 import numpy as np
 import pybullet as pb
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+from hivemind_env.env import (
+    ACTION_NAMES,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+    joint_from_slot_actions,
+    policy_uses_comms,
+)
+from hivemind_env.greedy import GreedyController
+from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device
 
-from hivemind_env.env import NUM_AGENTS, HiveMindMultiAgentEnv  # noqa: E402
-from hivemind_env.greedy import GreedyController  # noqa: E402
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device  # noqa: E402
-
-ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
 PICKUP = 4
 
 # The environment grants a pickup when the nearest carton is within 1.5 cells, measured
@@ -154,9 +127,13 @@ def run(actor, mode, episodes, num_cartons, deterministic, seed0=1000):
     needed anyway and this keeps the two paths identical.
     """
     st = Stats()
+    # A comms checkpoint emits a token alongside every movement and needs an env that
+    # accepts one. Read it off the policy; the greedy controller never speaks.
+    comms = mode == "policy" and policy_uses_comms(actor)
 
     for ep in range(episodes):
-        env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons)
+        env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons,
+                                    comms=comms, msg_dropout=0.0)
         obs, _ = env.reset(seed=seed0 + ep)
         controller = GreedyController(env) if mode == "greedy" else None
         st.episodes += 1
@@ -171,12 +148,16 @@ def run(actor, mode, episodes, num_cartons, deterministic, seed0=1000):
             if mode == "greedy":
                 actions = np.asarray(controller.act(), dtype=int)
             else:
-                actions, _ = actor.predict(np.asarray(obs, dtype=np.float32),
-                                           deterministic=deterministic)
-                actions = np.asarray(actions).reshape(-1)[:NUM_AGENTS].astype(int)
+                raw, _ = actor.predict(np.asarray(obs, dtype=np.float32),
+                                       deterministic=deterministic)
+                actions = joint_from_slot_actions(raw, NUM_AGENTS)
+
+            # Movement only. The conversion this script measures is about PICKUP, and
+            # reading column 1 of a comms action would be counting tokens as actions.
+            moves = actions[:, 0] if actions.ndim == 2 else actions
 
             for i, (in_range, dist) in enumerate(flags):
-                a = int(actions[i])
+                a = int(moves[i])
                 if in_range:
                     st.opportunities += 1
                     saw_opportunity = True

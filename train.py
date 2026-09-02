@@ -1,31 +1,31 @@
 """
-Train a shared policy on the HiveMind warehouse - roadmap step 6, no communication.
+Train the shared HiveMind policy. All four robots run one set of weights.
 
-All four robots run one set of weights. `HiveMindSharedPolicyVecEnv` presents each
-four-robot world as four policy-facing slots, which is the project roadmap's "cheap option first";
-that module documents what this is and is not (parameter sharing with a decentralised
-critic, not MAPPO with a centralised one).
-
-    # smoke run - a few thousand steps, checks the pipeline end to end
-    .venv\\Scripts\\python.exe train.py --smoke
-
-    # a real run
-    .venv\\Scripts\\python.exe train.py --timesteps 5000000 --worlds 8
-
-    # watch it
+    train.py --smoke                                   # pipeline check, ~1 minute
+    train.py --num-cartons 1 --curriculum --timesteps 5000000 --worlds 12
     tensorboard --logdir tensorboard_logs
 
-WHAT THIS RUN CANNOT TELL YOU
+`HiveMindSharedPolicyVecEnv` presents each four-robot world as four policy slots and
+documents what that is and is not - parameter sharing with a decentralised critic, not
+MAPPO with a centralised one.
 
-There is no greedy baseline yet (roadmap step 5). Rising reward here means the policy is
-learning *something*; it does not mean the policy is good, because nothing says what a
-competent robot would have scored on the same seeds. Build the baseline before reading
-anything into these curves - that ordering is the whole point of step 5 preceding step 6.
+READ THE CURVES AGAINST THE BASELINE, NOT AGAINST ZERO. Greedy's makespan is 23 / 59 / 98
+at 4 / 8 / 12 cartons; a rising reward curve on its own says the policy learned
+something, not that it is any good.
 
-Communication is not in this run. The 48 message slots are present and zero. That is
-deliberate: this run is the no-communication baseline that step 7 has to beat, and the
-comparison is only clean because the observation width and the architecture are
-identical across the two.
+COMMUNICATION IS OFF BY DEFAULT (roadmap step 7). Without `--comms` this is the step-6
+baseline: message slots present and zero, Discrete(7) per slot, every pre-step-7
+checkpoint still loadable. With it, each robot also emits one of 16 tokens per step and
+the slots carry what the other three said one step earlier, so the per-slot action space
+becomes MultiDiscrete([7, 16]). The observation width and the network are identical
+either way, so the two runs must differ in exactly one flag:
+
+    train.py --run-name nocomm --num-cartons 1 --curriculum --timesteps 5000000
+    train.py --run-name comms  --num-cartons 1 --curriculum --timesteps 5000000 --comms
+
+Watch comms/token_entropy_bits and comms/mi_carrying_bits together, never alone: PPO's
+entropy bonus pushes the token head toward uniform, so high entropy on its own is the
+null result rather than the positive one. See MessageStatsCallback.
 """
 from __future__ import annotations
 
@@ -40,6 +40,8 @@ from stable_baselines3.common.vec_env import VecMonitor
 
 from hivemind_env.env import (
     DEFAULT_OBS_DIM,
+    MSG_DROPOUT_DEFAULT,
+    MSG_TOKENS,
     NUM_AGENTS,
     SHAPING_SCALE_DEFAULT,
     max_steps_for,
@@ -48,6 +50,7 @@ from hivemind_env.models import DEFAULT_POLICY_KWARGS
 from hivemind_env.training import (
     INFERENCE_CUSTOM_OBJECTS,
     CurriculumCallback,
+    MessageStatsCallback,
     get_device,
     linear_schedule,
     num_parallel_envs,
@@ -77,7 +80,8 @@ def build_env(worlds: int, difficulty: int, seed: int | None,
               backend: str = "subproc", substeps: int | None = None,
               max_steps: int | None = None, num_cartons: int | None = None,
               shaping: bool = True, gamma: float = 0.99,
-              shaping_scale: float | None = None):
+              shaping_scale: float | None = None, comms: bool = False,
+              msg_dropout: float = MSG_DROPOUT_DEFAULT):
     """
     Wrapped in VecMonitor so ep_rew_mean / ep_len_mean reach TensorBoard.
 
@@ -87,7 +91,9 @@ def build_env(worlds: int, difficulty: int, seed: int | None,
     sequential here: slower, but a traceback inside a worker is far harder to read.
     """
     cls = HiveMindSubprocVecEnv if backend == "subproc" else HiveMindSharedPolicyVecEnv
-    kwargs = {"shaping": shaping, "gamma": gamma}
+    kwargs = {"shaping": shaping, "gamma": gamma, "comms": comms}
+    if comms:
+        kwargs["msg_dropout"] = msg_dropout
     if substeps is not None:
         kwargs["substeps"] = substeps
     if max_steps is not None:
@@ -126,10 +132,10 @@ def main():
                         "terminal bonus is never reached by an untrained policy and the "
                         "critic never sees one. At 1 a random policy completes 33%%.")
     p.add_argument("--init-from", default=None,
-                   help="Warm-start the policy from a saved checkpoint, typically the "
-                        "behaviour-cloned one from scripts/pretrain_bc.py. The critic is "
-                        "NOT cloned, so expect the first iterations to dip before they "
-                        "improve.")
+                   help="Warm-start the policy weights from a saved checkpoint. The "
+                        "critic is NOT cloned, so expect the first iterations to dip. "
+                        "The action space must match, so a silent checkpoint cannot "
+                        "seed a --comms run or the reverse.")
     p.add_argument("--run-name", default=None)
     p.add_argument("--save-dir", default="models")
     p.add_argument("--log-dir", default="tensorboard_logs")
@@ -160,6 +166,25 @@ def main():
                    help="subproc: one process per warehouse (default; the only way to "
                         "use more than one core). inprocess: everything sequential in "
                         "this process - slower, but debuggable.")
+    p.add_argument("--comms", action="store_true",
+                   help="Turn on the 16-token broadcast channel (roadmap step 7). Each "
+                        "robot emits one token per step alongside its movement, and "
+                        "hears the other three one step later. The observation width "
+                        "and the network are identical with and without this, so the "
+                        "run it must be compared against is the SAME command without "
+                        "the flag.")
+    p.add_argument("--msg-dropout", type=float, default=MSG_DROPOUT_DEFAULT,
+                   help=f"Probability each listener-speaker link drops a message "
+                        f"(default {MSG_DROPOUT_DEFAULT}). The roadmap asks for ~10%% so "
+                        f"the protocol is not brittle. Ignored without --comms.")
+    p.add_argument("--ent-coef", type=float, default=0.01,
+                   help="PPO entropy bonus. It matters more with --comms than without: "
+                        "SB3 sums the entropy of BOTH heads, and the token head's "
+                        "maximum is ln(16)=2.77 against the movement head's ln(7)=1.95, "
+                        "so the bonus is a standing pressure toward a uniform - that is, "
+                        "meaningless - token distribution. Lower it to ~0.003 if "
+                        "comms/mi_carrying_bits stays at zero while "
+                        "comms/token_entropy_bits sits at its 4.0 ceiling.")
     p.add_argument("--smoke", action="store_true",
                    help="Tiny run that exercises every code path in a minute or two.")
     args = p.parse_args()
@@ -186,7 +211,9 @@ def main():
               r".venv\Scripts\python.exe -m pip install tensorboard")
 
     print("=" * 78)
-    print("  HiveMind - shared-policy PPO, no communication (roadmap step 6)")
+    print("  HiveMind - shared-policy PPO"
+          + (" WITH communication (roadmap step 7)" if args.comms
+             else ", no communication (roadmap step 6)"))
     print("=" * 78)
     print(f"  run          : {run_name}")
     print(f"  worlds       : {worlds}  ->  {slots} policy slots ({NUM_AGENTS} per world)")
@@ -201,6 +228,11 @@ def main():
     print(f"  max steps    : {args.max_steps or f'{max_steps_for(args.num_cartons)} (per carton count)'}")
     print(f"  cartons      : {args.num_cartons or '12 (env default)'}")
     print(f"  shaping      : {'off - sparse spec reward' if args.no_shaping else f'on, scale {args.shaping_scale or SHAPING_SCALE_DEFAULT}'}")
+    print("  comms        : "
+          + (f"ON - {MSG_TOKENS} tokens, {args.msg_dropout:.0%} link dropout, "
+             f"MultiDiscrete([7, {MSG_TOKENS}]) per slot"
+             if args.comms else "off - message slots zero (step 6 baseline)"))
+    print(f"  ent_coef     : {args.ent_coef}")
     print(f"  backend      : {args.backend}"
           + ("" if args.backend == "subproc" else "  (sequential - one core only)"),
           flush=True)
@@ -208,7 +240,8 @@ def main():
     env = build_env(worlds, args.difficulty, args.seed, args.backend,
                     args.substeps, args.max_steps, args.num_cartons,
                     shaping=not args.no_shaping, gamma=args.gamma,
-                    shaping_scale=args.shaping_scale)
+                    shaping_scale=args.shaping_scale, comms=args.comms,
+                    msg_dropout=args.msg_dropout)
 
     model = PPO(
         "MlpPolicy",
@@ -220,7 +253,7 @@ def main():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.01,          # the action space is small and delivery is sparse
+        ent_coef=args.ent_coef,  # see --ent-coef; it is not neutral once comms are on
         vf_coef=0.5,
         max_grad_norm=0.5,
         policy_kwargs=DEFAULT_POLICY_KWARGS,
@@ -236,6 +269,19 @@ def main():
         from stable_baselines3 import PPO as _PPO
         donor = _PPO.load(args.init_from, device=device,
                           custom_objects=INFERENCE_CUSTOM_OBJECTS)
+        # The action head's shape is part of the weights. A no-comms donor has one
+        # 7-way head and a comms policy has a 7-way plus a 16-way one, so mixing them
+        # fails - as a torch size mismatch several frames deep, which is a poor way to
+        # find out.
+        if donor.action_space != env.action_space:
+            raise SystemExit(
+                f"--init-from {args.init_from} has action space {donor.action_space}, "
+                f"but this run's is {env.action_space}.\n"
+                f"A checkpoint trained without --comms cannot warm-start a run with it, "
+                f"or the reverse: the token head does not exist in one of them.\n"
+                f"Train the communicating arm from scratch - and note that the whole "
+                f"point of the comparison is that both arms start from the same place."
+            )
         model.policy.load_state_dict(donor.policy.state_dict())
         print(f"  warm start   : policy weights from {args.init_from}", flush=True)
 
@@ -243,6 +289,8 @@ def main():
     print(f"  policy params: {n_params:,}\n", flush=True)
 
     callbacks = []
+    if args.comms:
+        callbacks.append(MessageStatsCallback(check_freq=2048))
     if args.curriculum:
         callbacks.append(CurriculumCallback(initial_lr=args.lr, check_freq=2048))
     if args.checkpoint_every < args.timesteps:
@@ -272,8 +320,14 @@ def main():
     print(f"\n  saved      : {final}")
     print(f"  wall clock : {elapsed / 60:.1f} min for {steps:,} robot-steps "
           f"({steps / max(elapsed, 1e-9):.0f}/s)")
-    print("\n  Next: build the greedy baseline (roadmap step 5) and compare makespan.")
-    print("  Until that number exists, a rising reward curve is not evidence of much.")
+    if args.comms:
+        print(f"\n  Next: measure whether the channel is a protocol or decoration -")
+        print(f"    scripts/analyse_messages.py {final} --num-cartons <n>")
+        print("  Emitting varied tokens is not the result. Losing makespan when those")
+        print("  tokens are shuffled is.")
+    else:
+        print("\n  Next: score it against the greedy baseline (makespan 98 at 12 cartons),")
+        print("  then run the identical command with --comms and compare the two.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """
 Drive one robot through a full pickup and delivery, checking the observation at
 every stage. Roadmap step 3's verification, in the spirit of step 4's "verify with
-play_multi.py before any training".
+a scripted driver before any training".
 
 This exists because an observation bug is silent. A wrong reward makes training
 diverge visibly; a carton status stuck on "available" just makes the policy a bit
@@ -12,15 +12,10 @@ ground truth read straight from PyBullet rather than trusted.
 
 Exits non-zero on the first failed check.
 """
-import os
 import sys
 
 import numpy as np
 import pybullet as pb
-
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
 from hivemind_env.env import (
     CARTON_AVAILABLE,
@@ -28,6 +23,7 @@ from hivemind_env.env import (
     CARTON_CLAIMED_BY_OTHER,
     CARTON_DELIVERED,
     MSG_TOKENS,
+    NUM_AGENTS,
     NUM_CARTONS,
     LIDAR_BEAM_Z,
     LIDAR_MAX_RANGE,
@@ -40,7 +36,7 @@ from hivemind_env.env import (
     HiveMindMultiAgentEnv,
     describe_observation_layout,
 )
-from play_multi import (
+from hivemind_env.gridnav import (
     approach_cell,
     direction_for,
     path_between,
@@ -279,17 +275,36 @@ def main():
         check("observation still inside observation_space", space.contains(obs))
 
         # -- Message wiring ----------------------------------------------------
-        print("\n[6] Message slot wiring (step 7 rehearsal, not step 7)")
-        env.messages[1] = np.linspace(0.1, 0.9, MSG_TOKENS, dtype=np.float32)
+        print("\n[6] Message slots and the pinned width, with and without comms")
+        # Until 2026-09-02 this block assigned to env.messages directly and read the
+        # slice back, as a rehearsal for step 7. Step 7 has landed and the slice is now
+        # fed by the channel, so writing to the array behind it tests nothing -
+        # _broadcast() overwrites it on every step. Routing, dropout and the evaluation
+        # interventions are verified in scripts/verify_comms.py; what belongs HERE, in
+        # the file that owns the layout, is the guarantee the pin rests on.
         obs = driver.act(6)
-        heard = part(obs[0], "messages")[0:MSG_TOKENS]
-        check("robot 0 hears robot 1's message in the first token block",
-              np.allclose(heard, env.messages[1], atol=1e-6),
-              f"heard {heard[:3]}... expected {env.messages[1][:3]}...")
-        check("robot 1 does not hear itself",
-              not np.allclose(part(obs[1], "messages")[0:MSG_TOKENS], env.messages[1]))
-        check("dimension unchanged by writing messages", obs.shape[1] == OBS_DIM_V3)
-        env.messages[1] = 0.0
+        check("message slice is the last 48 floats of the observation",
+              OBS_SLICES["messages"].stop == OBS_DIM_V3
+              and OBS_SLICES["messages"].stop - OBS_SLICES["messages"].start
+              == MSG_TOKENS * (NUM_AGENTS - 1))
+        check("message slots are zero throughout an episode with comms off",
+              not np.any(part(obs[0], "messages")))
+        check("dimension unchanged by the message slots", obs.shape[1] == OBS_DIM_V3)
+
+        talker = HiveMindMultiAgentEnv(render_mode=None, num_cartons=1, comms=True,
+                                       msg_dropout=0.0)
+        try:
+            talker.reset(seed=1000)
+            spoken, _, _, _, _ = talker.step(np.array([[6, 5], [6, 9], [6, 2], [6, 14]]))
+            check("turning comms on does not move the pinned width",
+                  spoken.shape == (NUM_AGENTS, OBS_DIM_V3),
+                  f"got {spoken.shape}; a width change here invalidates every "
+                  f"checkpoint trained against V3")
+            check("with comms on each speaker block holds exactly one one-hot",
+                  np.allclose(part(spoken[0], "messages")
+                              .reshape(NUM_AGENTS - 1, MSG_TOKENS).sum(1), 1.0))
+        finally:
+            talker.close()
 
     finally:
         env.close()

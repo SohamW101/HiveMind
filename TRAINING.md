@@ -41,7 +41,7 @@ from it:
 Expect `Makespan : 23 / 58 / 97` across the three levels and `Completed : 100%`
 throughout. Takes about two minutes. If your machine produces different numbers,
 something differs in the physics build and no result from it is comparable to
-`docs_analysis/greedy_baseline_blocked.json`.
+`docs_analysis/greedy_baseline.json`.
 
 The baseline is deliberately made a *fair* opponent — it reverses instead of turning
 twice, never wastes a turn lining up a grab, and stops as soon as a target is in range.
@@ -164,17 +164,22 @@ the exact index URL from pytorch.org for your CUDA version:
 
 ### Verify before training
 
-Run all five. They take about three minutes together and they are the difference between
+Run all six. They take about three minutes together and they are the difference between
 debugging a bad checkpoint and never creating one. `diagnose_incentives.py` is the one
 added after three training runs completed zero episodes; do not skip it.
 
 | Command | Expected |
 |---|---|
 | `.venv\Scripts\python.exe smoke_test.py` | 16 PASS, 0 TODO, 0 FAIL |
-| `.venv\Scripts\python.exe scripts\verify_observations.py` | 53 passed, 0 failed |
+| `.venv\Scripts\python.exe scripts\verify_observations.py` | 55 passed, 0 failed |
 | `.venv\Scripts\python.exe scripts\verify_rewards.py` | 38 passed, 0 failed |
+| `.venv\Scripts\python.exe scripts\verify_comms.py` | 31 passed, 0 failed |
 | `.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 1` | 6 gates PASS |
 | `.venv\Scripts\python.exe scripts\run_evaluation.py --baseline greedy --episodes 30` | makespan 23 / 58 / 97, 100% |
+
+`verify_comms.py` is worth running even for a no-communication run: its first section is
+the assertion that `comms=False` is unchanged, which is what keeps that run a valid
+control arm.
 
 ---
 
@@ -225,10 +230,15 @@ honest replacement is a real asymmetric critic — not more hyperparameter tunin
 --seed N            Seeds the policy and the per-world warehouse generation.
 --max-steps N       Episode cap. Defaults per carton count: 150 / 250 / 400 at 4 / 8 / 12.
 --num-cartons N     Cartons in play. Default 12. Start at 1 - see section 2.
---shaping-scale F   Strength of the potential-based shaping. Default 6.0.
+--shaping-scale F   Strength of the potential-based shaping. Default 30.0.
 --no-shaping        Train the specification's sparse reward exactly. Ablations only.
 --gamma FLOAT       Discount. Default 0.99.
 --curriculum        Promote 4 -> 8 -> 12 cartons on rolling success.
+--comms             Turn on the 16-token broadcast channel (step 7). Off by default.
+--msg-dropout F     Per listener-speaker link dropout. Default 0.10. Needs --comms.
+--ent-coef F        PPO entropy bonus. Default 0.01. Read the note in section 14 before
+                    changing it - with --comms it is a standing pressure toward a
+                    meaningless token distribution.
 --checkpoint-every  Save every N robot-steps. Default 250,000.
 --run-name NAME     Names the checkpoint and the TensorBoard run.
 --smoke             4,096 steps. Exercises every code path in about a minute.
@@ -649,15 +659,68 @@ measured on; matching that standard matters more here than a confident-sounding 
 
 ---
 
-## 14. After this run
+## 14. After this run: the communication comparison
 
-The no-communication policy is the control condition. The contribution is the comparison
-against a communicating policy: a 16-token broadcast filling the reserved message slots,
-with around 10% message dropout so the protocol does not become brittle.
+The no-communication policy is the control condition. The channel it is compared against
+was built on 2026-09-02 and is off by default, so the two arms of the experiment are the
+same command differing in one flag:
 
-Because the observation width and the network architecture are identical across both
-conditions, that comparison is clean — which is the entire reason the slots ship reserved
-and zeroed rather than being added later.
+```powershell
+# control
+.venv\Scripts\python.exe -u train.py --run-name nocomm --num-cartons 1 --curriculum ^
+    --timesteps 5000000 --worlds <cores> --checkpoint-every 25000
 
-Report makespan as the headline, with distance travelled, collision count and message
-entropy alongside. Entropy is how you show a real protocol emerged rather than noise.
+# treatment - identical but for --comms
+.venv\Scripts\python.exe -u train.py --run-name comms --num-cartons 1 --curriculum ^
+    --timesteps 5000000 --worlds <cores> --checkpoint-every 25000 --comms
+```
+
+With `--comms` each robot emits one of 16 tokens per step and hears the other three one
+step later, through 10% per-link dropout. The observation width (177) and the network are
+identical either way, which is the entire reason the slots shipped reserved and zeroed
+rather than being added now.
+
+**Run the control first and to completion.** A communicating run with no baseline to
+compare against measures nothing.
+
+### What to watch, and the trap in it
+
+`--comms` adds four TensorBoard series. Read the first and the last **together**:
+
+| series | healthy | what it looks like when the channel is unused |
+|---|---|---|
+| `comms/token_entropy_bits` | anywhere below the ceiling | pinned at **4.0**, its maximum |
+| `comms/tokens_used` | some subset of 16 | all 16, evenly |
+| `comms/top_token_share` | one or two symbols carrying real mass | ~6% each, flat |
+| `comms/mi_carrying_bits` | rises above 0 | **0.00** forever |
+
+**High entropy is the null result, not the positive one.** PPO's entropy bonus is summed
+over both action heads, and the token head's maximum (ln 16 = 2.77) is larger than the
+movement head's (ln 7 = 1.95), so an ignored token head drifts to uniform on its own.
+Measured on the callback directly: a perfect protocol scored **2.78 bits of entropy with
+0.97 bits of mutual information**, while pure noise scored **4.00 bits with 0.00**. The
+informative channel had the *lower* entropy.
+
+If entropy pins at 4.0 while `mi_carrying_bits` stays at zero past ~1M steps, lower the
+entropy bonus: `--ent-coef 0.003`.
+
+### Reporting the result
+
+```powershell
+.venv\Scripts\python.exe scripts\analyse_messages.py models\comms_final.zip ^
+    --num-cartons 4 --episodes 30 --out docs_analysis\messages.json
+```
+
+It answers three questions and a protocol claim needs all three: is there information in
+the tokens (mutual information against a shuffled floor), does the listener react (KL on
+the movement distribution when the message slots are zeroed), and does breaking the
+channel cost makespan (the same seeds re-run under `learned` / `silent` / `shuffled` /
+`random`).
+
+`shuffled` is the one that decides it — real tokens from the same step attributed to the
+wrong speakers, so the input distribution is untouched and only the meaning is destroyed.
+
+Report makespan as the headline, with distance travelled, collision count and the message
+analysis alongside. If the channel turns out to be unused, report that: "the robots were
+given a channel and did not use it" is a real finding, and it is the more likely one on a
+first run.

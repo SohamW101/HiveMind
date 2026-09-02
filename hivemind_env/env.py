@@ -8,112 +8,105 @@ import math
 import time
 
 # =============================================================================
-# OBSERVATION LAYOUT V2 - PINNED AT 105 FLOATS PER ROBOT. READ BEFORE CHANGING.
+# OBSERVATION LAYOUT V3 - PINNED AT 177 FLOATS PER ROBOT. READ BEFORE CHANGING.
 # =============================================================================
 #
-# VERSION HISTORY
-#   V1  81 floats. Shipped 2026-08-28, superseded the same day, NEVER TRAINED
-#       AGAINST - no checkpoint exists at this width. It carried carton *status*
-#       but no carton *positions*, which made it blind to the warehouse: five
-#       different seeds produced five different layouts and one byte-identical
-#       observation. A policy on it could only search at random.
-#   V2 105 floats. Adds 12 carton positions (2 floats each). Current.
+# The flatten width is baked into saved policy weights, so a checkpoint only loads into
+# an env reporting the identical dimension. Changing this number does not raise at
+# training time - it retroactively invalidates every existing model, and the failure
+# surfaces much later as a shape error nobody can date. Phase 1 was bitten by exactly
+# that. A new width is a new OBS_DIM_V4 alongside V3, never an edit to V3.
 #
-# The version number exists so that any future width change is dated rather than
-# silent. V1 is kept as a constant, not as a code path: selecting it is refused,
-# because the env can no longer produce it.
+# Three defences: the per-component constants below are the only source of truth
+# (nothing hard-codes 177 or a slice bound); OBS_SLICES is checked AT IMPORT to tile
+# [0, OBS_DIM_V3) with no gap or overlap; __init__ rejects a mismatched obs_dim.
 #
-# Phase 1 was bitten by an unpinned observation width: the flatten width is baked
-# into the saved weights, so a checkpoint can only ever be loaded back into an env
-# that reports the identical dimension. A silent change here does not raise at
-# training time - it invalidates every model trained before it, retroactively, and
-# the failure surfaces much later as a shape error nobody can date.
+#   V1   81  no carton positions - five layouts gave one identical observation
+#   V2  105  adds carton positions, no LiDAR - added when shelves became solid
+#   V3  177  adds 72 LiDAR rays. Current, and what every checkpoint was trained at.
 #
-# Three defences, in order of how much they actually help:
-#   1. The per-component constants below are the single source of truth. Nothing
-#      in this file hard-codes 81, 33 or any slice bound.
-#   2. _OBS_SLICES is checked at import time to tile [0, OBS_DIM_V1) exactly with
-#      no gap and no overlap. Add a component without updating the total and the
-#      module fails to import - loudly, immediately, before any training starts.
-#   3. HiveMindMultiAgentEnv.__init__ rejects an obs_dim that disagrees with
-#      OBS_DIM_V1, so a stale call site cannot quietly build a mismatched env.
+# Neither V1 nor V2 was ever trained against; both are refused at construction.
 #
-# LAYOUT (per robot; the full observation is (num_agents, OBS_DIM_V1) float32)
+#   slice      size  component           encoding
+#   [  0:  3]     3  own pose            x, y over arena half-extent; heading wrapped
+#                                        into [0,1) so cardinals read 0/.25/.5/.75
+#   [  3:  5]     2  own velocity        last-step XY displacement, cells/step
+#   [  5:  6]     1  own carrying        0 or 1
+#   [  6: 15]     9  other poses         3 x (x, y, yaw), fixed order, self skipped
+#   [ 15: 18]     3  other carrying      0 or 1
+#   [ 18: 30]    12  carton status       0 available / .33 mine / .67 other's / 1 done
+#   [ 30: 54]    24  carton positions    12 x (x, y), same slot index as the statuses
+#   [ 54: 56]     2  depot direction     offset, normalised by arena span
+#   [ 56: 57]     1  elapsed time        current_step / max_steps
+#   [ 57:129]    72  LiDAR               270 deg arc, 0.1-10 m, normalised, noisy
+#   [129:177]    48  messages            3 speakers x 16 one-hot tokens; all zero
+#                                        unless comms=True
 #
-#   slice     size  component              encoding
-#   -------   ----  ---------------------  --------------------------------------
-#   [ 0: 3]      3  own pose               x, y normalised by arena half-extent;
-#                                          heading wrapped into [0, 1), so the four
-#                                          cardinals read 0.0 / 0.25 / 0.5 / 0.75
-#   [ 3: 5]      2  own velocity           XY displacement over the last step,
-#                                          in cells/step, clipped to [-1, 1]
-#   [ 5: 6]      1  own carrying flag      0.0 or 1.0
-#   [ 6:15]      9  other robots' poses    3 robots x (x, y, yaw), same encoding
-#                                          as own pose, in fixed agent order with
-#                                          self skipped
-#   [15:18]      3  other carrying flags   0.0 or 1.0
-#   [18:30]     12  carton status          one float per carton, stable index:
-#                                          0.00 available    (still on the floor)
-#                                          0.33 claimed by me (I am carrying it)
-#                                          0.67 claimed by other
-#                                          1.00 delivered
-#   [30:54]     24  carton positions       12 x (x, y), same index as the status
-#                                          slots above, same normalisation as
-#                                          pose. A carried carton reports where
-#                                          it currently is; a delivered one
-#                                          reports the depot
-#   [54:56]      2  depot direction        offset to depot, normalised by arena
-#                                          span - carries bearing AND distance
-#   [56:57]      1  elapsed time           current_step / max_steps
-#   [57:105]    48  message slots          3 other robots x MSG_TOKENS, ALL ZERO
-#                                          in v2 (roadmap step 7 fills these)
-#   -------   ----
-#   total      105
+# Everything is normalised into [-1, 1]; _get_obs clips to enforce it.
 #
-# WHY THE MESSAGE SLOTS EXIST NOW, ZEROED
-# Reserving them today is the whole point of pinning. Roadmap step 7 adds the
-# 16-token broadcast; if the slots were added *then*, the observation would grow
-# from 33 to 81 and every no-comms checkpoint from step 6 would become unloadable
-# - destroying exactly the before/after comparison that is the contribution. With
-# the slots reserved, step 7 writes into them and the dimension never moves.
+# CHOICES THAT COST SOMETHING
+# - Heading is one wrapped float, not sin/cos, which would need 4 values and break the
+#   pin. Defensible only because step() snaps headings to the four cardinals, so the
+#   network learns 4 discrete values rather than regressing an angle across the wrap.
+#   A velocity-controlled motion model with arbitrary headings makes this a V4.
+# - Poses are the SNAPPED grid poses, not raw base transforms: the chassis settles a few
+#   millimetres during the substeps, which made a one-cell move measure 0.992 cells.
+# - Velocity is displacement, not getBaseVelocity, which is meaningless noise after the
+#   teleport snapback.
+# - Carton status is one ordinal float, not a 4-way one-hot (48 more floats). The four
+#   values are evenly spaced, but this does encode an ordering that does not exist. If a
+#   policy cannot tell "claimed by other" from "delivered", widen it - as a V4.
+# - Other robots' poses are absolute, in fixed agent order. Relative-to-self would
+#   probably generalise better under a shared policy; that is a clean ablation.
+# - Depot direction is redundant (the depot is always grid (0,0)) but costs 2 floats and
+#   saves the network learning the transform.
 #
-# CHOICES MADE HERE THAT THE ROADMAP LEFT OPEN (all reversible, none free)
-# - Pose is 3 values, so heading is one number, not sin/cos (which would need 4 and
-#   break the pinned 33). Defensible only because step() snaps headings to the four
-#   cardinals: the network learns 4 discrete values, it does not regress a
-#   continuous angle across the wrap. If the physics motion model later allows
-#   arbitrary headings, revisit this - sin/cos is then worth its extra float, and
-#   that is an OBS_DIM_V2.
-# - Every pose in the observation is the SNAPPED pose, matching what step() acts on
-#   rather than the raw base transform. The chassis settles a few millimetres during
-#   the substeps; reading that raw made a one-cell move measure 0.992 cells and gave
-#   a stationary robot a non-zero velocity.
-# - Velocity is last-step displacement, NOT pb.getBaseVelocity. Under the current
-#   grid-teleport motion the base velocity after snapback is meaningless noise;
-#   displacement says what the robot actually did, and it stays correct when the
-#   velocity-controlled motion model replaces it.
-# - Carton status is one ordinal float per carton, not a 4-way one-hot (which
-#   would need 48). The four values are evenly spaced so no pair is closer than
-#   any other, but this does encode an ordering that does not really exist. If
-#   step 6 struggles to tell "claimed by other" from "delivered", this is the
-#   first thing to widen - and it is a dimension change, so it must be a new
-#   OBS_DIM_V2 with its own constant, never an edit to V1.
-# - Other robots' poses are absolute, in fixed agent order with self skipped.
-#   Relative-to-self coordinates would likely generalise better under a shared
-#   policy; that is a clean ablation, not a v1 requirement.
-# - Depot direction is redundant - the depot is fixed at grid (0,0) every episode,
-#   so it is fully determined by own pose. Kept because it is 2 floats and saves
-#   the network learning the transform.
+# =============================================================================
+# THE COMMUNICATION CHANNEL (roadmap step 7, landed 2026-09-02)
+# =============================================================================
 #
-# - Carton positions are absolute, and share the status slots' index, so slot i is
-#   the same carton in both. A carton being carried reports where it actually is
-#   (it moves with the gripper); a delivered carton reports the depot, which is
-#   where it ended up. The status slot already says "delivered", so a policy that
-#   wants to ignore that position can.
+# The 48 slots were reserved and zeroed from 2026-08-29 so that filling them today did
+# not move the width. That is what pinning was for: had they been added now, every
+# no-comms checkpoint would have become unloadable, destroying the before/after
+# comparison that is this project's contribution.
+#
+# `comms=False` is the default and leaves the env exactly as it was: action space
+# MultiDiscrete([7,7,7,7]), slots zero, channel code never entered. With `comms=True`
+# each robot emits one of MSG_TOKENS symbols per step alongside its movement, so the
+# action space becomes MultiDiscrete([[7,16]] x 4). A robot hears the other three, never
+# itself, in the same fixed speaker order the pose slots use.
+#
+# FOUR DECISIONS, none of them free:
+#
+# 1. TOKENS ARE DISCRETE AND PART OF THE ACTION (RIAL). The alternative - a continuous
+#    vector with gradients flowing listener-to-speaker (DIAL) - learns faster and cannot
+#    be built on stock Stable-Baselines3, which has no rollout that keeps the graph
+#    across agents. The reinforced version costs sample efficiency and makes the protocol
+#    readable: 16 symbols have a measurable entropy and mutual information.
+# 2. MESSAGES ARRIVE ONE STEP LATE, unavoidably: all four robots choose from the same
+#    observation simultaneously, so a token picked at step t cannot be in the observation
+#    used at step t. A protocol here is about state still true a step later - intent,
+#    claims, roles - not reflexes.
+# 3. SILENCE IS NOT A TOKEN. All 16 symbols are chosen; the all-zero vector means
+#    "nothing arrived" and comes only from dropout, comms=False, or the first
+#    observation of an episode. So dropout removes information rather than fabricating
+#    it, and saying nothing costs a symbol - a convention a policy has to invent.
+# 4. DROPOUT IS PER LISTENER-SPEAKER LINK, not per broadcast, so two listeners can
+#    disagree about the same step. Strictly harder than losing a broadcast for everyone,
+#    which is the point of the roadmap's "~10% dropout so the protocol is not brittle".
+#
+# `message_mode` supplies the evaluation-time interventions that separate "emits varied
+# tokens" from "uses them". See MESSAGE_MODES and scripts/analyse_messages.py.
 # =============================================================================
 
 NUM_AGENTS = 4
 NUM_CARTONS = 12
+
+# Movement actions. Named because the vec-env wrappers restate the size of this space
+# to SB3 and every diagnostic prints the labels - six copies of this list had drifted
+# into six files.
+ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
+MOVE_ACTIONS = len(ACTION_NAMES)
 
 OBS_OWN_POSE = 3
 OBS_OWN_VELOCITY = 2
@@ -126,59 +119,39 @@ OBS_DEPOT_DIRECTION = 2
 OBS_ELAPSED_TIME = 1
 
 # ---------------------------------------------------------------------------
-# LiDAR (spec S2.2), new in V3
+# LiDAR (spec S2.2)
 # ---------------------------------------------------------------------------
-# Spec asks for 720 rays over a 270-degree front-facing arc, 0.1 - 10.0 m, with
-# Gaussian noise of sigma = 0.01 m + 1% of range.
-#
-# The FOV, range and noise model are taken as written. The ray COUNT is not: 720
-# floats per robot would be seven times the entire rest of the observation (105),
-# and 4 x 720 = 2880 raycasts every step is a real cost in a loop that already runs
-# 30 physics substeps. 72 rays is exactly one tenth of the spec's resolution, which
-# is still 3.75 degrees per ray - at 3 m that is a 20 cm gap between beams and at
-# 10 m it is 65 cm, so 1 m obstacles in a 1 m grid stay resolvable everywhere in the
-# arena. Raising it is a V4, not an edit.
+# The spec's FOV, range and noise model are taken as written. Its ray COUNT of 720 is
+# not: that would be seven times the rest of the observation and 2,880 raycasts per
+# step. 72 rays is one tenth of it, still 3.75 deg apart - a 20 cm gap between beams at
+# 3 m - so 1 m obstacles in a 1 m grid stay resolvable. Raising it is a V4.
 LIDAR_NUM_RAYS = 72
 LIDAR_FOV_RAD = math.radians(270.0)
 LIDAR_MIN_RANGE = 0.1
 LIDAR_MAX_RANGE = 10.0
 
-# Rays start this far from the robot centre so the sweep does not range on the robot's
-# own body. The widest link at beam height is the front wheel, at 0.2363 m from centre;
-# 0.28 clears it with margin for the arm swinging during a pickup.
-#
-# Casting from the spec's 0.1 m instead put the origin *inside* the chassis, and the
-# scan came back reading 0.12 m minimum and 2.2 m maximum in a 13 m arena - every beam
-# stopped on the robot's own wheels. Reported distances are still measured from the
-# robot centre, so the geometry stays honest; the practical effect is that this robot
-# cannot see anything closer than 0.28 m, which the spec's 0.1 m minimum assumed a
-# smaller body for.
+# Rays start this far out so the sweep does not range on the robot's own body. The
+# widest link at beam height is the front wheel at 0.2363 m. Casting from the spec's
+# 0.1 m put the origin inside the chassis and every beam stopped on a wheel: the whole
+# scan read 0.12-2.2 m in a 13 m arena. Distances are still measured from the centre.
 LIDAR_START_RADIUS = 0.28
 
-# Beam height above the floor, absolute rather than read off the chassis.
+# Beam height, a constant rather than the live chassis z, for two reasons.
 #
-# It has to sit inside two bands at once: the robot chassis (0.094 - 0.194) so the
-# sweep reports what the body would collide with, and the bottom shelf plate
-# (0.140 - 0.220) so shelves are actually visible. 0.17 is inside both with ~25 mm of
-# margin either side.
+# It must sit inside the chassis band (0.094-0.194) so the sweep reports what the body
+# collides with, AND inside the bottom shelf plate (0.140-0.220) so shelves are visible
+# at all. 0.17 clears both by ~25 mm. The robot's modelled LiDAR link is at 0.21-0.25
+# and rises to 0.5 m while carrying - faithful to the URDF and wrong for the task, since
+# a beam at 0.23 passes over the plate the chassis is about to hit.
 #
-# Reading the live base z instead was wrong twice over: the chassis settles downward
-# a fraction of a millimetre per step, so after ~250 steps the beam had sunk below the
-# plate's 0.14 underside and every ray flew *under* the shelving into the far wall -
-# a robot one cell from a shelf reported 2.5 m of clear space. The sink itself is now
-# fixed (see _spawn_z), but the beam stays on a constant so perception cannot silently
-# depend on chassis dynamics again.
+# And it is a constant because reading the live z once let the beam sink with the
+# settling chassis: after ~250 steps every ray flew *under* the shelving and a robot one
+# cell from a shelf reported 2.5 m of clear space. The sink is fixed (see _spawn_z), but
+# perception must not be able to depend on chassis dynamics again.
 LIDAR_BEAM_Z = 0.17
-LIDAR_NOISE_SIGMA = 0.01      # metres, constant term
+LIDAR_NOISE_SIGMA = 0.01       # metres, constant term
 LIDAR_NOISE_RANGE_FRAC = 0.01  # plus 1% of the measured range
 
-# WHY THE BEAM SITS AT CHASSIS HEIGHT
-# The robot carries a modelled LiDAR link at z ~ 0.21 - 0.25 that rises to 0.5 m while
-# carrying. Casting from there would be faithful to the URDF and wrong for the task:
-# the bottom shelf plate spans 0.14 - 0.22, so a beam at 0.23 passes just over the
-# plate the chassis is about to hit, and a carrying robot's raised mast would see over
-# the shelving entirely. The sensor must see what the body collides with, so rays are
-# cast at the chassis centre instead and the height does not change with carrying.
 OBS_LIDAR = LIDAR_NUM_RAYS
 
 # Everything the robot observes about the world, before any communication.
@@ -189,10 +162,32 @@ OBS_WORLD_DIM = (
     + OBS_DEPOT_DIRECTION + OBS_ELAPSED_TIME + OBS_LIDAR
 )  # 129
 
-# Roadmap step 7: each robot broadcasts MSG_TOKENS values; a robot hears the other
-# three, never itself. Spec section 2.4 sets the vocabulary at K = 16 tokens.
+# Roadmap step 7: each robot broadcasts one of MSG_TOKENS symbols; a robot hears the
+# other three, never itself. Spec section 2.4 sets the vocabulary at K = 16 tokens.
 MSG_TOKENS = 16
 OBS_MESSAGE_DIM = MSG_TOKENS * (NUM_AGENTS - 1)  # 48
+
+# The token index that means "nothing arrived". It is NOT a symbol a robot can choose -
+# see choice 3 in the header. Emitted as the all-zero vector, which no one-hot equals.
+MSG_SILENT = -1
+
+# Roadmap step 7: "Include ~10% message dropout during training so the protocol is not
+# brittle." Applied per listener-speaker link, so the three links into one robot fail
+# independently and two listeners can disagree about the same step.
+MSG_DROPOUT_DEFAULT = 0.10
+
+# Evaluation-time interventions on the channel: what separates "emits varied tokens"
+# from "uses them". A channel that can be replaced by noise without costing makespan was
+# never a protocol.
+#
+#   learned   what the speakers said. The training setting.
+#   silent    everyone hears the zero vector - how much competence rests on hearing.
+#   shuffled  real tokens from this step, wrong speakers. THE SHARP ONE: the marginal
+#             token distribution is untouched, so only the meaning dies. `silent` and
+#             `random` can both be survived by a policy that merely learned to tolerate
+#             noise in those inputs.
+#   random    uniform tokens - same information rate, zero correlation with the world.
+MESSAGE_MODES = ("learned", "silent", "shuffled", "random")
 
 OBS_DIM_V1 = 81    # historical - no carton positions, no LiDAR. Never trained against.
 OBS_DIM_V2 = 105   # historical - carton positions, no LiDAR. Never trained against.
@@ -205,17 +200,14 @@ _SUPERSEDED_DIMS = {
                 "which a robot otherwise had no way to perceive",
 }
 
-# Carton status values. Evenly spaced across [0, 1] - see the note above about
-# this being ordinal rather than categorical.
-# Curriculum ladder: difficulty level -> how many cartons are in play. Mirrored by
+# Curriculum ladder: difficulty level -> cartons in play. Mirrored by
 # hivemind_env.training.CURRICULUM_CARTONS, which drives promotion.
 CURRICULUM_CARTONS = {1: 4, 2: 8, 3: 12}
 
-# Episode cap per curriculum level, roughly 3x the greedy baseline's makespan at each
-# (23.0 / 59.1 / 97.6 over 30 seeds). A cap far above the job length is not free: the
-# time penalty accrues, the makespan bonus is normalised by it, and every surplus step
-# is another opportunity to collide. 400 at 4 cartons was 17x greedy and cost -18 of
-# time penalty per episode against a job that finishes in 24 steps.
+# Episode cap per carton count, roughly 3x greedy's makespan at each (23 / 59 / 98 over
+# 30 seeds). A cap far above the job length is not free: the time penalty accrues, the
+# makespan bonus is normalised by it, and every surplus step is another chance to
+# collide. A flat 400 at 4 cartons was 17x greedy and cost -18 per episode.
 MAX_STEPS_BY_CARTONS = {1: 60, 2: 90, 4: 150, 8: 250, 12: 400}
 
 
@@ -238,45 +230,40 @@ CARTON_DELIVERED = 1.0
 
 
 # =============================================================================
-# REWARD SPECIFICATION - transcribed from MAWC_Technical_Specification.pdf, S3
+# REWARD - transcribed from MAWC_Technical_Specification.pdf, S3
 # =============================================================================
 #
-# S3.1 Shared rewards (90% weight), applied identically to all 4 agents:
-#     all 12 resources delivered   +100.0                        once per episode
-#     per successful delivery      +10.0                          per delivery
-#     makespan bonus               +50 x (T_max - T_actual)/T_max once per episode
-#     collision (any pair)         -5.0                           per event
-#     time penalty                 -0.05                          every step
+# S3.1 Shared (90% weight), identical for all 4 agents:
+#     all resources delivered  +100.0                          once per episode
+#     per delivery             +10.0
+#     makespan bonus           +50 x (T_max - T_actual) / T_max once per episode
+#     collision (any pair)     -5.0                            per event
+#     time penalty             -0.05                           every step
 #
-# S3.2 Individual rewards (10% weight), per agent:
-#     successful personal pickup   +1.0                           per pickup
-#     successful personal delivery +2.0                           per delivery
-#     idle penalty                 -0.02   (v < 0.1 m/s, not at depot), per step
-#     replanning penalty           -0.1    (A* re-triggered)       per replan
-#     invalid action penalty       -0.5                           per invalid action
+# S3.2 Individual (10% weight), per agent:
+#     own pickup               +1.0
+#     own delivery             +2.0
+#     idle (v < 0.1, off depot) -0.02                          per step
+#     replanning (A* re-run)   -0.1                            NOT IMPLEMENTED
+#     invalid action           -0.5
 #
 # S3.3  R_total_i = 0.90 * R_shared + 0.10 * R_individual_i
 #
-# TWO SPEC ITEMS AND HOW THEY LAND HERE
+# THREE PLACES THE SPEC NEEDED A DECISION
 #
-# 1. The replanning penalty has no trigger in this environment and is NOT
-#    implemented. It fires when A* is re-run, and project decision 3 puts A*,
-#    DWA and EKF out of scope - robots here are placed on a grid, not driven
-#    along a planned path. There is nothing to replan, so charging for it would
-#    be inventing an event. The constant is defined below and left unused so the
-#    omission is visible rather than silent.
+# 1. The replanning penalty has no trigger here. It fires when A* re-runs, and project
+#    decision 3 puts A*, DWA and EKF out of scope - robots are placed on a grid, not
+#    driven along a planned path. R_REPLAN_PENALTY is defined and deliberately unused so
+#    the omission is visible rather than silent.
+# 2. "Per collision event" is billed on contact onset, not per step: robots teleport, so
+#    an overlapping pair stays overlapped until one moves and charging every step would
+#    bill -5.0 repeatedly for one mistake.
+# 3. The idle penalty is on linear velocity, so by the spec's letter a robot turning on
+#    the spot IS idle, and that is implemented literally. The effect is small (0.002 per
+#    step against a 0.045 time penalty). Pass idle_penalises_turning=False to exempt it.
 #
-# 2. The idle penalty is defined on linear velocity ("v < 0.1 m/s"), and the
-#    spec's own velocity component is (v, omega) - so by its letter a robot
-#    turning on the spot IS idle. That is implemented literally. It slightly
-#    charges for turning, which navigation needs; the effect is small (0.10
-#    weight x 0.02 = 0.002 per step, against a 0.045 time penalty) but it is a
-#    real choice, not an oversight. Turn off with `idle_penalises_turning=False`
-#    if step 6 shows the policy avoiding turns.
-#
-# The spec's example uses T_max = 500 s. This env has no seconds - it counts
-# steps - so T_max is max_steps and T_actual is the step the episode ended on.
-# The bonus formula is unchanged.
+# T_max is max_steps - this env counts steps, not the spec's seconds. Otherwise the
+# formula is unchanged.
 # =============================================================================
 
 # Shared (S3.1)
@@ -297,78 +284,61 @@ R_INVALID_ACTION = -0.5
 SHARED_WEIGHT = 0.90
 INDIVIDUAL_WEIGHT = 0.10
 
-# "v < 0.1 m/s" in cells per step. A move covers exactly 1.0 cell/step, so any
-# threshold below 1.0 separates moving from not moving; 0.1 keeps the spec's number.
+# "v < 0.1 m/s" in cells per step. A move covers exactly 1.0 cell/step, so any threshold
+# below 1.0 separates moving from not moving; 0.1 keeps the spec's number.
 IDLE_SPEED_THRESHOLD = 0.1
 
-# The spec's depot is a 2 m x 2 m zone; here it is one grid cell, and "at depot" uses
-# the same 1.5-cell radius that the drop-off action already uses, so a robot parked
-# where it can legally deliver is not also charged for idling there.
+# The spec's depot is a 2x2 m zone; here it is one cell, and "at depot" reuses the
+# drop-off action's 1.5-cell radius so a robot parked where it can legally deliver is
+# not also charged for idling there.
 DEPOT_RADIUS_CELLS = 1.5
 
 # ---------------------------------------------------------------------------
 # Potential-based reward shaping - an ADDITION to the specification's table
 # ---------------------------------------------------------------------------
-# The specification's reward is sparse: nothing pays until a carton is picked up, and
-# the large terms only pay on completion. That is unlearnable from scratch here, and
-# it is not a guess - a 5,013,504-step run completed zero episodes out of roughly
-# 2,500 and converged to a mean episode reward of -103, which is BELOW the -94 a robot
-# scores by standing still for the whole episode. It had correctly learned that moving
-# costs more in collisions than delivery pays.
+# The spec's reward is sparse: nothing pays until a pickup, and the large terms only pay
+# on completion. That is unlearnable from scratch here, measured rather than guessed - a
+# 5,013,504-step run completed zero of ~2,500 episodes and converged to -103, BELOW the
+# -94 a robot scores by standing still. It had correctly learned that moving costs more
+# in collisions than delivery pays.
 #
-# The fix is potential-based shaping (Ng, Harada & Russell 1999):
-#
-#     F(s, s') = Phi(s') - Phi(s)
-#
-# with Phi = -(work remaining), measured in cartons. It cannot be farmed by hovering
-# because the sum telescopes to Phi(end) - Phi(start) regardless of the path taken
-# between them. See _potential() for the exact form and _shaping_reward() for why the
-# gamma of the textbook statement is 1 here.
+# The fix is potential-based shaping (Ng, Harada & Russell 1999), F = Phi(s') - Phi(s),
+# with Phi = -(work remaining) in cartons. It cannot be farmed by hovering: the sum
+# telescopes to Phi(end) - Phi(start) whatever path is taken between them.
 #
 #     R_total_i = 0.90 * R_shared + 0.10 * R_individual_i + F_i
 #
-# F_i is OUTSIDE the 90/10 split. The split, and every R_* constant above, are the
-# specification's and are untouched; this line is the only place the specification's
-# S3.3 formula is extended, and it is extended by an added term rather than by
-# retuning anything inside it.
+# F_i sits OUTSIDE the 90/10 split. Every R_* constant above is the specification's and
+# untouched; this added term is the only extension. Set shaping=False for the spec
+# exactly, and expect it not to learn.
 #
-# THE FIRST VERSION OF THIS WAS WRONG IN TWO WAYS, both measured on 2026-08-31:
-#   - Phi was plain distance to the current objective, which jumped downward when
-#     `is_carrying` flipped, so completing a pickup scored NEGATIVE total reward.
-#   - F was added inside the 0.10 individual bucket, so a scale of 15.0 delivered 1.5.
-# Both are described where they were fixed.
+# THE FIRST VERSION WAS WRONG IN TWO WAYS, both measured 2026-08-31: Phi was plain
+# distance to the current objective, so it jumped downward when is_carrying flipped and
+# completing a pickup scored NEGATIVE; and F was added inside the 0.10 bucket, so a
+# scale of 15.0 delivered 1.5. Both are described where they were fixed.
 #
-# THE SCALE IS SET BY ONE MEASURED QUANTITY: the expected value of a movement action.
+# THE SCALE IS SET BY ONE MEASURED QUANTITY - the expected value of moving:
 #
-#     EV(move) = shaping gain per cell  -  P(collision | move) x 4.5  -  time penalty
+#     EV(move) = shaping gain per cell - P(collision | move) x 4.5 - time penalty
 #
-# Only movement can collide. Turning, staying, PICKUP and DROP cannot, so the collision
-# penalty is a risk premium on the single action class that makes progress - and when
-# that premium exceeds the gain, the optimal policy is to turn, grab, and stand still.
+#     scale   gain/cell   EV(move) random   EV(move) dispersed
+#       6.0     +0.150         -0.379            -0.134
+#      20.0     +0.499         -0.030            +0.215
+#      30.0     +0.750         +0.221            +0.466
 #
-# That is not hypothetical. At scale 6.0 a move was worth -0.227, and the canary run
-# went to `stay` 100% under argmax while still turning 41% and pressing PICKUP 21% under
-# sampling, with fwd 2% / back 1%. It had learned the correct lesson from a wrong reward.
+# Only movement can collide - turning, staying, PICKUP and DROP cannot - so the
+# collision penalty is a risk premium on the one action class that makes progress, and
+# when it exceeds the gain the optimal policy is to turn, grab and stand still. At scale
+# 6.0 a canary run did exactly that: `stay` 100% under argmax, fwd 2% under sampling.
 #
-#     scale   per-cell gain   EV(move), random play   EV(move), dispersed
-#       6.0       +0.150             -0.379                 -0.134
-#      20.0       +0.499             -0.030                 +0.215
-#      30.0       +0.750             +0.221                 +0.466
+# P(collision | move) is 0.108 under random play, peaking at 0.146 mid-episode when
+# random walkers jam the aisles, 0.053 once dispersed, 0.031 for greedy. The scale is
+# set against the pessimistic figure because that is the regime PPO starts in.
 #
-# P(collision | move) is 0.108 under random play and 0.053 once robots have spread out
-# (measured in thirds of an episode: it peaks at 0.146 mid-episode when random walkers
-# jam the aisles; greedy achieves 0.031). The scale is set against the pessimistic
-# figure because that is the regime PPO starts in, and the margin widens on its own as
-# the policy stops colliding.
-#
-# A scale this large is safe for a specific reason: with the gamma of the shaping term
-# at 1, the episode total telescopes EXACTLY to scale x (Phi_end - Phi_start),
-# independent of the path taken. Raising it changes gradient magnitude and nothing else,
-# and no trajectory can farm it. Re-run scripts/diagnose_incentives.py after any change
-# to Phi - none of this arithmetic survives a redefinition.
-#
-# Set shaping=False to train against the specification's reward exactly. Expect it not
-# to learn.
+# A scale this large is safe because with the shaping gamma at 1 the episode total
+# telescopes exactly to scale x (Phi_end - Phi_start), independent of path: it changes
+# gradient magnitude and nothing else. Re-run scripts/diagnose_incentives.py after ANY
+# change to Phi - none of this arithmetic survives a redefinition.
 SHAPING_SCALE_DEFAULT = 30.0
 
 
@@ -416,12 +386,78 @@ def describe_observation_layout():
     lines = [f"Observation layout V3 - {OBS_DIM_V3} floats per robot, "
              f"{NUM_AGENTS} robots -> shape ({NUM_AGENTS}, {OBS_DIM_V3})"]
     for name, sl in OBS_SLICES.items():
-        note = " (zeros in v3)" if name == "messages" else ""
+        note = ""
+        if name == "messages":
+            note = (f" ({NUM_AGENTS - 1} speakers x {MSG_TOKENS} tokens; zero unless "
+                    f"comms=True)")
         if name == "lidar":
             note = f" ({LIDAR_NUM_RAYS} rays, 270 deg, {LIDAR_MAX_RANGE} m)"
         lines.append(f"  [{sl.start:3d}:{sl.stop:3d}]  {sl.stop - sl.start:2d}  {name}{note}")
     lines.append(f"  world features: {OBS_WORLD_DIM}   message slots: {OBS_MESSAGE_DIM}")
     return "\n".join(lines)
+
+
+def joint_from_slot_actions(slot_actions, num_agents=NUM_AGENTS):
+    """
+    Stack one shared policy's per-robot output into the joint action the env accepts.
+
+    `model.predict` over a batch of `num_agents` observations returns (n,) for a
+    Discrete(7) policy and (n, 2) for the MultiDiscrete([7, 16]) a communicating one
+    has - and this collapses the first case back to (n,) so the env sees the shape it
+    has always seen.
+
+    Every diagnostic script needs this and each of them used to write
+    `np.asarray(a).reshape(-1)[:4]`, which reads a comms policy's output as
+    [move0, token0, move1, token1] and hands the env four movements that are half
+    tokens. Silent, and it produces plausible-looking nonsense.
+    """
+    arr = np.asarray(slot_actions, dtype=int).reshape(num_agents, -1)
+    return arr[:, 0] if arr.shape[1] == 1 else arr
+
+
+def policy_uses_comms(model) -> bool:
+    """
+    Does this checkpoint have a token head? Read off the saved action space.
+
+    Asking the caller to remember is how a communicating policy gets evaluated with a
+    silent channel and the number filed as its score.
+    """
+    return tuple(getattr(getattr(model, "action_space", None), "shape", ()) or ()) == (2,)
+
+
+def split_joint_action(joint_action, num_agents=NUM_AGENTS):
+    """
+    Split whatever a caller passed into (movement actions, message tokens).
+
+    The joint action has two accepted shapes and this is the ONLY place that knows it:
+
+        (num_agents,)     movement only. Every token is MSG_SILENT. This is what the
+                          env has always accepted, and it is what the scripted greedy
+                          controller and any pre-step-7 checkpoint produce - so they
+                          keep running unchanged against a comms env, saying nothing.
+        (num_agents, 2)   column 0 movement, column 1 the token in [0, MSG_TOKENS).
+                          What a comms policy's MultiDiscrete([7, 16]) emits.
+
+    Returned tokens are always length num_agents with MSG_SILENT (-1) for silence, so
+    callers never branch on the input shape a second time.
+    """
+    arr = np.asarray(joint_action)
+    if arr.ndim == 1 and arr.size == num_agents:
+        return arr.astype(int), np.full(num_agents, MSG_SILENT, dtype=int)
+    if arr.ndim == 2 and arr.shape == (num_agents, 2):
+        tokens = arr[:, 1].astype(int)
+        if np.any((tokens < 0) | (tokens >= MSG_TOKENS)):
+            raise ValueError(
+                f"message tokens must lie in [0, {MSG_TOKENS}); got {tokens.tolist()}"
+            )
+        return arr[:, 0].astype(int), tokens
+    raise ValueError(
+        f"joint action must have shape ({num_agents},) for movement only or "
+        f"({num_agents}, 2) for movement + message token; got shape {arr.shape}. "
+        f"A flattened (num_agents * 2,) array is deliberately NOT accepted - it is "
+        f"indistinguishable from an 8-robot movement action and guessing between them "
+        f"is how a silent miswiring gets into a training run."
+    )
 
 
 class HiveMindMultiAgentEnv(gym.Env):
@@ -435,17 +471,33 @@ class HiveMindMultiAgentEnv(gym.Env):
                  show_lidar=None, obs_size=None, idle_penalises_turning=True,
                  lidar_noise=True, substeps=None, max_steps=None,
                  num_cartons=None, shaping=True,
-                 shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99):
+                 shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99,
+                 comms=False, msg_dropout=MSG_DROPOUT_DEFAULT,
+                 message_mode="learned"):
         super().__init__()
 
-        # How many of the NUM_CARTONS slots actually carry a carton this episode.
-        # The observation always reserves all 12 - the width is pinned - so a smaller
+        # --- Communication (roadmap step 7) ---------------------------------------
+        # Off by default, and that default is doing real work: with comms=False this
+        # env is what it was before step 7 landed, so every no-comms checkpoint loads
+        # and evaluates unchanged and stays a valid baseline. See the header.
+        self.comms = bool(comms)
+        self.msg_dropout = float(msg_dropout)
+        if not 0.0 <= self.msg_dropout <= 1.0:
+            raise ValueError(f"msg_dropout must be in [0, 1], got {msg_dropout}")
+        if message_mode not in MESSAGE_MODES:
+            raise ValueError(
+                f"message_mode={message_mode!r} is not one of {MESSAGE_MODES}. "
+                f"These are evaluation-time interventions on the channel - see the "
+                f"header block and scripts/analyse_messages.py."
+            )
+        self.message_mode = message_mode
+
+        # How many of the NUM_CARTONS slots carry a carton this episode; None means all
+        # 12. The observation always reserves 12 - the width is pinned - so a smaller
         # task marks the unused slots delivered from the start rather than shrinking the
-        # vector, and a checkpoint survives a difficulty change.
-        #
-        # None means the full 12. The curriculum sets this attribute directly; until
-        # 2026-08-31 the callback promoted a `difficulty_level` that nothing in the
-        # world ever read, so it had no effect on anything.
+        # vector, and a checkpoint survives a curriculum promotion. The callback sets
+        # this attribute directly; until 2026-08-31 it set `difficulty_level`, which
+        # nothing in the world read, so promotion did nothing at all.
         self.num_cartons = num_cartons
 
         # Potential-based reward shaping (Ng, Harada & Russell). See _shaping_reward.
@@ -455,30 +507,16 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.shaping = shaping
         self.shaping_scale = float(shaping_scale)
         self.gamma = float(gamma)
-        # Physics substeps per environment step: a one-cell move is executed by
-        # teleporting the robot across this many resetBasePositionAndOrientation +
-        # stepSimulation pairs.
+        # Substeps are an interpolation, NOT the motion model: the final pose is the
+        # snapped grid target regardless and collisions are read from it, so the count
+        # does not affect makespan, collisions, deliveries or completion. Measured over
+        # the 30-seed greedy baseline at 30 / 10 / 5 / 1 substeps: identical to the
+        # decimal every time. It changes animation smoothness, how far a carton is flung
+        # when a robot ploughs into it, and speed by ~10x end to end.
         #
-        # It is an interpolation, not the motion model. The final pose is the snapped
-        # grid target regardless, and collisions are read from that final pose, so the
-        # count does NOT affect makespan, collisions, deliveries, invalid actions or
-        # completion. Measured across the full 30-seed greedy baseline at 30, 10, 5 and
-        # 1 substeps: identical to the decimal every time (97.6 mean, 96.5 median,
-        # sd 8.3, 30/30 complete, 6.3 collisions).
-        #
-        # What it does change is animation smoothness and how far a carton is flung when
-        # a robot ploughs into it (max 3.98 m at 30, 1.17 m at 1 under random actions) -
-        # and speed, by about 10x end to end.
-        #
-        # Default is 5, chosen on 2026-08-30: 5x the raw throughput of 30 with no
-        # behavioural difference. Not 1, because a robot then jumps a full metre in one
-        # go and could tunnel past the 6 cm shelf posts - no evidence it does, but a
-        # thin margin for a further 2.6x, and thinner still once the velocity-controlled
-        # motion model replaces the teleport.
-        #
-        # None means "pick for the mode": GUI keeps 30 so `play_multi.py` animates
-        # smoothly. Behaviour is identical either way, so the demo and training runs
-        # disagreeing on this costs nothing.
+        # 5 headless (5x the throughput of 30, no behavioural difference), 30 in the GUI
+        # so it animates. Not 1: a robot then jumps a full metre at once and could tunnel
+        # past the 6 cm shelf posts.
         if substeps is None:
             substeps = 30 if render_mode == "human" else 5
         self.substeps = int(substeps)
@@ -520,7 +558,18 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.obs_dim = obs_dim
 
         # Actions: 0: Forward, 1: Backward, 2: Turn Left, 3: Turn Right, 4: Pick Up, 5: Drop Off, 6: Stay
-        self.action_space = spaces.MultiDiscrete([7] * self.num_agents)
+        #
+        # With comms on, every robot also emits one of MSG_TOKENS symbols on the same
+        # step, so the per-robot action becomes a pair and the joint action gains a
+        # second column. The movement column keeps index 0 and keeps its meaning, so
+        # everything that reads `action[..., 0]` is unaffected by the switch.
+        if self.comms:
+            self.action_space = spaces.MultiDiscrete(
+                np.array([[MOVE_ACTIONS, MSG_TOKENS]] * self.num_agents,
+                         dtype=np.int64)
+            )
+        else:
+            self.action_space = spaces.MultiDiscrete([MOVE_ACTIONS] * self.num_agents)
 
         # One row per robot. Everything is normalised into [-1, 1] so the bounds are
         # honest rather than +/-inf placeholders; _get_obs clips to enforce them.
@@ -547,25 +596,12 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.depot_id = None
         self.obstacle_ids = []
         self.depot_pos_grid = (0, 0)
-        # Episode budget. Was 2000 until 2026-08-31, which was actively harmful:
-        # greedy finishes in 97.6 steps on average and 123 at worst, so 2000 was 16x
-        # more than the task needs. Two things went wrong at that length.
-        #
-        #   1. With gamma = 0.99 the terminal rewards are mathematically invisible.
-        #      0.99^98 = 0.37, but 0.99^2000 = 1.9e-9 - the +100 completion bonus and
-        #      the makespan bonus, the two largest terms in the whole reward table,
-        #      discount to nothing from the start of an episode that long.
-        #   2. Every episode is 2000 steps of mostly-noise, so a fixed compute budget
-        #      buys very few episodes and credit assignment has to span the whole thing.
-        #
-        # A 5M-step run at 2000 completed exactly zero episodes out of ~2,500.
-        # 400 leaves 3.2x headroom over greedy's worst observed episode.
-        #
-        # The cap now scales with the carton count. 400 at 4 cartons is 17x greedy's
-        # 23.7, so every episode dragged -18 of time penalty behind a job that finishes
-        # in 24 steps, and each of those wasted steps is another chance to collide.
-        # MAX_STEPS_BY_CARTONS keeps roughly 3x headroom at each curriculum level; pass
-        # max_steps explicitly to override it.
+        # Episode budget, ~3x greedy's makespan at each carton count. It was a flat
+        # 2000 until 2026-08-31, which was actively harmful: 0.99^2000 = 1.9e-9, so the
+        # +100 completion and makespan bonuses - the two largest terms in the table -
+        # discounted to nothing from the first step (0.99^98 = 0.37, so the horizon
+        # suited the task and not the episode it was embedded in). A 5M-step run at 2000
+        # completed zero of ~2,500 episodes. Pass max_steps to override.
         self.max_steps = int(max_steps) if max_steps is not None \
             else max_steps_for(self.num_cartons)
         self.current_step = 0
@@ -593,7 +629,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         # Observation bookkeeping, all rebuilt per episode.
         #
         # `resource_ids` is the *available* cartons and shrinks as they are picked up -
-        # play_multi.py reads it that way, so its meaning must not change. The
+        # Scripted controllers read it that way, so its meaning must not change. The
         # observation needs something different: a stable slot per carton that survives
         # pickup and delivery, so carton 7 is always index 7 for the whole episode.
         self.all_resource_ids = []          # fixed order, length NUM_CARTONS
@@ -602,9 +638,29 @@ class HiveMindMultiAgentEnv(gym.Env):
         self._prev_xy = [(0.0, 0.0)] * self.num_agents
         self._velocity = [(0.0, 0.0)] * self.num_agents
 
-        # Roadmap step 7 writes here; until then these stay zero and the message slots
-        # of every observation are zero with them.
+        # --- Communication state (roadmap step 7) -----------------------------------
+        # `messages[j]` is what robot j broadcast on the last step, as a one-hot over the
+        # vocabulary, or all zeros for silence. It starts silent: on the first
+        # observation of an episode nobody has spoken yet, and that is a fact the
+        # listener should see rather than a zero standing in for a token.
         self.messages = np.zeros((self.num_agents, MSG_TOKENS), dtype=np.float32)
+        self.message_tokens = np.full(self.num_agents, MSG_SILENT, dtype=int)
+        # `_heard[listener, speaker]` is what arrived AFTER dropout and any message_mode
+        # intervention - so the listener's diagonal is never read, and two listeners can
+        # legitimately hold different views of the same speaker.
+        self._heard = np.zeros(
+            (self.num_agents, self.num_agents, MSG_TOKENS), dtype=np.float32
+        )
+        self._dropped = np.zeros((self.num_agents, self.num_agents), dtype=bool)
+
+        # The channel gets its own generator, derived from the episode seed. Sharing
+        # np.random would make dropout consume draws from the same stream the world
+        # layout uses, so switching comms on or off would silently change every
+        # warehouse - and the no-comms baseline would no longer be on the same seeds
+        # as the run it is being compared with.
+        self._msg_rng = np.random.default_rng(
+            None if seed is None else (int(seed) * 7919 + 13)
+        )
 
         # Reward bookkeeping (spec S3), all per-episode.
         # `_colliding_pairs` holds the pairs already in contact, so a collision is
@@ -764,22 +820,18 @@ class HiveMindMultiAgentEnv(gym.Env):
             p_, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
             self.carton_home_cells.append(self._world_to_grid(p_[0], p_[1]))
 
-        # Cells a robot cannot enter. Shelf rows are the odd grid rows; every cell in
-        # them is solid shelf except the two gaps, which is where the cartons start.
+        # Cells a robot cannot enter: odd grid rows are solid shelf except the two
+        # gaps, which is where the cartons start.
         #
-        # This used to live in greedy.py and nowhere else, because the env let robots
-        # drive into shelves and simply charged the collision. That was measured on
-        # 2026-08-31 and reversed: a random policy took 105.8 collision events per
-        # episode, 93.8 of them robot-vs-shelf, while the greedy controller took
-        # exactly 0.0. At -5.0 shared that is -1.19 reward/agent/step for moving
-        # against -0.045 for standing still, so the only thing PPO could learn was to
-        # freeze - which is exactly what it did, three runs running. The penalty was
-        # not teaching shelf avoidance; it was taxing exploration for a mistake the
-        # optimal policy never makes.
-        #
-        # Blocking the move instead costs the spec's -0.5 invalid action, the same as
-        # driving off the grid already did, and leaves every reward constant untouched.
-        # Robot-robot collisions are unaffected and still cost -5.0 per the spec.
+        # The env used to let robots drive into shelves and charge the collision.
+        # Measured 2026-08-31: a random policy took 105.8 collision events per episode,
+        # 93.8 of them shelf, while greedy took 0.0. At -5.0 shared that is -1.19
+        # reward/agent/step for moving against -0.045 for standing still, so the only
+        # thing PPO could learn was to freeze - which it did, three runs running. The
+        # penalty was taxing exploration for a mistake the optimal policy never makes.
+        # Blocking the move costs the spec's -0.5 invalid action instead, the same as
+        # driving off the grid, and changes no reward constant. Robot-robot collisions
+        # are untouched and still cost -5.0.
         _gaps = set(self.carton_home_cells)
         self.blocked_cells = {
             (r, c)
@@ -788,15 +840,13 @@ class HiveMindMultiAgentEnv(gym.Env):
             if (r, c) not in _gaps
         }
 
-        # Curriculum: keep only `active` cartons in play. The rest are removed from the
-        # world and marked delivered, so termination fires when the active ones are
-        # done. The observation keeps all 12 slots either way - inactive ones read
-        # "delivered" and report the depot as their position - so the pinned width and
-        # every trained checkpoint survive a difficulty change.
-        # None means the full task. The curriculum must opt in explicitly by setting
-        # `num_cartons` - deriving it from difficulty_level instead would have silently
-        # changed what the verifiers and the greedy baseline measure, since
-        # difficulty_level defaults to 1.
+        # Curriculum: keep only `active` cartons. The rest are removed from the world
+        # and marked delivered, so termination fires when the active ones are done while
+        # the observation keeps all 12 slots - inactive ones read "delivered" - and the
+        # pinned width survives a promotion. None means the full task; the curriculum
+        # opts in by setting `num_cartons` explicitly, because deriving it from
+        # difficulty_level (which defaults to 1) would silently change what the
+        # verifiers and the greedy baseline measure.
         active = NUM_CARTONS if self.num_cartons is None else self.num_cartons
         active = max(1, min(int(active), NUM_CARTONS))
         self.active_cartons = active
@@ -846,7 +896,18 @@ class HiveMindMultiAgentEnv(gym.Env):
             cardinal_angle = math.pi
         return cardinal_angle
 
-    def step(self, actions):
+    def step(self, joint_action):
+        # Movement and speech are separated here and nowhere else. Everything below
+        # this line sees `actions` exactly as it did before communication existed; the
+        # tokens are used once, at the very end, to fill the channel.
+        actions, tokens = split_joint_action(joint_action, self.num_agents)
+        if not self.comms and np.any(tokens != MSG_SILENT):
+            raise ValueError(
+                "message tokens were supplied but this env was built with comms=False, "
+                "so nothing would ever hear them and the message slots would stay zero. "
+                "Build the env with comms=True, or drop the second action column."
+            )
+
         self.current_step += 1
         num_substeps = self.substeps
         self._lidar_cache = None
@@ -869,14 +930,11 @@ class HiveMindMultiAgentEnv(gym.Env):
             # Snap yaw to exact cardinal direction to prevent drift
             yaw = round(yaw / (math.pi / 2.0)) * (math.pi / 2.0)
             
-            # Snap position to exact grid cell center to prevent drift.
-            #
-            # z is snapped too, which it was not until 2026-08-29. The chassis settles
-            # ~0.17 mm per step under gravity and nothing ever put it back, so a robot
-            # sank 0.051 m over 300 steps and would have dropped ~0.34 m across a full
-            # 2000-step episode - through the floor, with the wheels buried long before
-            # that. It went unnoticed while nothing depended on height; the LiDAR beam
-            # depends on it, which is how it surfaced.
+            # Snap to the exact cell centre to prevent drift - z included, which it was
+            # not until 2026-08-29: the chassis settled ~0.17 mm per step under gravity
+            # and nothing put it back, so a robot sank 0.051 m per 300 steps and would
+            # have gone through the floor over a full episode. Unnoticed until the LiDAR
+            # beam depended on height.
             r, c = self._world_to_grid(pos[0], pos[1])
             gx, gy = self._grid_to_world(r, c)
             pos = (gx, gy, self._spawn_z)
@@ -1076,6 +1134,11 @@ class HiveMindMultiAgentEnv(gym.Env):
         self._episode_reward += rewards
         self.last_reward_breakdown = breakdown
 
+        # The channel is filled last, so the observation this step returns already
+        # carries what was said during it. That is the one-step delay from the header:
+        # a token chosen at step t from the observation at t-1 is heard at t+1.
+        self._broadcast(tokens)
+
         info = self._get_info()
         info.update({
             "collisions": len(collisions),
@@ -1090,6 +1153,64 @@ class HiveMindMultiAgentEnv(gym.Env):
         })
 
         return self._get_obs(), rewards.tolist(), terminated, truncated, info
+
+    def _broadcast(self, tokens):
+        """
+        Encode this step's tokens and push them through the channel.
+
+        Produces `self.messages` (what was said, one-hot per speaker) and `self._heard`
+        (what arrived, per listener-speaker pair, after dropout and any message_mode
+        intervention). Keeping those two separate is what makes the analysis honest:
+        the speaker's own record is never altered by the channel, so a token that was
+        emitted and then dropped is still counted as emitted when entropy is measured.
+
+        With comms off this writes silence and returns - the message slots of every
+        observation stay zero, exactly as they were before step 7.
+        """
+        n = self.num_agents
+        self.message_tokens = np.asarray(tokens, dtype=int).copy()
+
+        if not self.comms:
+            self.messages[:] = 0.0
+            self._heard[:] = 0.0
+            self._dropped[:] = False
+            return
+
+        # Speak: one-hot per speaker, all-zero for silence.
+        self.messages[:] = 0.0
+        for j, tok in enumerate(self.message_tokens):
+            if tok != MSG_SILENT:
+                self.messages[j, int(tok)] = 1.0
+
+        # Listen: start from a perfect channel, one row per listener.
+        heard = np.repeat(self.messages[None, :, :], n, axis=0)
+
+        if self.message_mode == "silent":
+            heard[:] = 0.0
+        elif self.message_mode == "shuffled":
+            # Real tokens from this step, attributed to the wrong speakers. Each
+            # listener gets its own derangement-ish permutation, so the marginal token
+            # distribution it hears is untouched and only the speaker binding breaks.
+            for i in range(n):
+                heard[i] = self.messages[self._msg_rng.permutation(n)]
+        elif self.message_mode == "random":
+            heard[:] = 0.0
+            picks = self._msg_rng.integers(0, MSG_TOKENS, size=(n, n))
+            for i in range(n):
+                for j in range(n):
+                    heard[i, j, picks[i, j]] = 1.0
+
+        # Drop: independently per listener-speaker link. A dropped message is the
+        # all-zero vector, which is distinguishable from every one-hot - the listener
+        # learns "I heard nothing", not a wrong token.
+        if self.msg_dropout > 0.0:
+            self._dropped = self._msg_rng.random((n, n)) < self.msg_dropout
+            np.fill_diagonal(self._dropped, False)   # nobody hears themselves anyway
+            heard[self._dropped] = 0.0
+        else:
+            self._dropped[:] = False
+
+        self._heard = heard.astype(np.float32, copy=False)
 
     def _in_bounds(self, x, y):
         """Is this world position inside the 13x13 grid?"""
@@ -1114,25 +1235,15 @@ class HiveMindMultiAgentEnv(gym.Env):
         """
         Contacts that count as collisions, as a set of hashable keys.
 
-        Spec S3.1 charges -5.0 for a "collision (any pair)", "per collision event".
+        Spec S3.1 charges -5.0 per "collision (any pair)", "per collision event". Pairs
+        are robot-robot, robot-shelf and robot-wall. (Shelves became solid on 2026-08-29
+        - before that the bottom plate sat at 0.30 above a 0.194 chassis and robots drove
+        straight underneath.)
 
-        WHAT COUNTS AS A PAIR
-        Robot-robot contacts, plus robot-vs-shelf and robot-vs-wall. The obstacle half
-        was added on 2026-08-29 with the shelf geometry fix: until then the bottom shelf
-        plate sat at 0.30 and the chassis topped out at 0.194, so robots drove straight
-        under the shelving and there was nothing to charge. Lowering the plate to 0.18
-        made shelves solid, and the penalty is what teaches robots to route around them
-        - "let the collision penalty do the work" rather than blocking the move outright,
-        so a wedged robot has to learn its way out instead of the env silently refusing.
-
-        WHY "EVENT" MEANS ONSET
-        Two readings are possible: charge every step a pair overlaps, or charge once when
-        the contact begins. The second is used - robots here are teleported rather than
-        driven, so an overlapping pair stays overlapped until one of them moves away, and
-        per-step charging would bill -5.0 repeatedly for a single mistake.
-        `_colliding_pairs` carries the previous step's contacts so only new ones are
-        billed. A robot that parks itself inside a shelf pays once, not forever; the time
-        penalty is what stops it sitting there.
+        "Event" is read as ONSET, not per step: robots teleport, so an overlapping pair
+        stays overlapped until one moves and per-step charging would bill -5.0 repeatedly
+        for one mistake. `_colliding_pairs` carries the previous step's contacts so only
+        new ones are billed.
         """
         current = set()
         for a in range(self.num_agents):
@@ -1182,32 +1293,23 @@ class HiveMindMultiAgentEnv(gym.Env):
 
         Objective is the depot while carrying, the nearest available carton otherwise.
 
-        WHY IT IS SHAPED LIKE THIS, AND NOT AS PLAIN DISTANCE
+        WHY NOT PLAIN DISTANCE
 
-        It was plain distance until 2026-08-31 - just `-d(objective)/span`, with the
-        objective switching from carton to depot the moment `is_carrying` flipped. That
-        made Phi jump discontinuously downward at exactly the transition the task is
-        built around, so **picking up a carton was punished**. Measured on a perfect
-        greedy episode, every one of the four pickups scored a negative total reward:
+        It was plain `-d(objective)/span` until 2026-08-31, with the objective switching
+        the moment `is_carrying` flipped - so Phi jumped downward at exactly the
+        transition the task is built around and PICKING UP A CARTON WAS PUNISHED. On a
+        perfect greedy episode all four pickups scored negative total reward (-0.469,
+        -0.107, -0.399, -0.698); the spec's +1.0 own-pickup, weighted to +0.1, could not
+        survive it.
 
-            step 5  agent0  PICKUP  shaping -5.222  ->  total -0.469
-            step 5  agent1  PICKUP  shaping -1.599  ->  total -0.107
-            step 5  agent3  PICKUP  shaping -4.520  ->  total -0.399
-            step 6  agent2  PICKUP  shaping -7.507  ->  total -0.698
+        The 0.5 term is the fix - not carrying is half a carton of work away from
+        carrying - so a pickup RAISES Phi by `0.5 - d_depot/(2*span)`, non-negative
+        because a distance cannot exceed the span. n_undelivered does the same for the
+        delivery transition. Both are asserted in scripts/verify_rewards.py.
 
-        The spec's +1.0 own-pickup reward, weighted to +0.1, could not survive it.
-
-        The 0.5 term is the fix: not carrying is half a carton's worth of work away from
-        carrying, so completing a pickup RAISES Phi by `0.5 - d_depot/(2*span)`, which is
-        non-negative because a distance cannot exceed the span. The n_undelivered term
-        does the same job for the delivery transition, paying for `carrying` flipping
-        back to False: a delivery raises Phi by `0.5 - d_next/(2*span)`, also
-        non-negative. Both are proved by assertion in scripts/verify_rewards.py.
-
-        It also fixes a second, quieter failure. The old Phi returned 0.0 for any
-        non-carrying robot once every carton was claimed - and at 4 cartons with 4
-        robots that is true from step 6 onward, so the shaping gradient vanished for
-        most of the episode. n_undelivered keeps moving until the job is done.
+        It also fixes a quieter failure: the old Phi returned 0.0 for any non-carrying
+        robot once every carton was claimed, which at 4 cartons and 4 robots is true from
+        step 6 onward, so the gradient vanished for most of the episode.
         """
         x, y, _ = self._canonical_pose(agent_idx)
         n_left = sum(1 for slot in range(self.active_cartons) if not self.delivered[slot])
@@ -1238,18 +1340,15 @@ class HiveMindMultiAgentEnv(gym.Env):
 
         WHY THERE IS NO GAMMA HERE
 
-        The textbook form is `gamma * Phi(s') - Phi(s)` (Ng, Harada & Russell), which is
-        exactly policy-invariant for the gamma-discounted objective. Phi is negative
-        everywhere here, so that form carries a per-step drift of `-(1 - gamma) * Phi`,
-        which is POSITIVE and largest when the robot is furthest from finishing - a
-        standing bonus for loitering, worth about +0.005 * scale every step. With a
-        400-step cap and truncation that is not a rounding error, and it points the
-        wrong way. Using gamma = 1 in the shaping term drops the drift; it costs strict
-        policy-invariance, which is why shaping is declared as a deviation from the
-        specification's reward table wherever these runs are reported.
+        The textbook form `gamma * Phi(s') - Phi(s)` is exactly policy-invariant, but Phi
+        is negative everywhere here, so it carries a per-step drift of `-(1-gamma)*Phi` -
+        POSITIVE, largest when furthest from finishing, i.e. a standing bonus for
+        loitering worth ~+0.005*scale every step. gamma = 1 drops the drift at the cost
+        of strict policy-invariance, which is why shaping is declared as a deviation
+        wherever these runs are reported.
 
-        `_prev_potential` holds Phi at the previous state and is refreshed here, so this
-        must be called exactly once per step, after the physics has settled.
+        `_prev_potential` is refreshed here, so this must be called exactly once per
+        step, after the physics has settled.
         """
         out = np.zeros(self.num_agents, dtype=np.float64)
         if not self.shaping:
@@ -1328,15 +1427,11 @@ class HiveMindMultiAgentEnv(gym.Env):
         # ---- Potential-based shaping (NOT in the specification) ---------------
         # R_i = 0.90 * R_shared + 0.10 * R_individual_i + F_i
         #
-        # F_i sits OUTSIDE the 90/10 split, which it did not until 2026-08-31. It was
-        # being added to the individual bucket and therefore multiplied by 0.10, so
-        # `shaping_scale=15.0` was silently delivering 1.5 - about +0.115 per cell of
-        # approach against a -4.5 collision. Nothing said so; the constant simply did
-        # not mean what it read as. Outside the split it does.
-        #
-        # The split itself is the spec's and is untouched: every R_* constant and both
-        # weights are exactly as specified. Shaping is our own addition and is declared
-        # as such in TRAINING.md - see _shaping_reward() for the gamma decision.
+        # F_i sits OUTSIDE the 90/10 split, which it did not until 2026-08-31: it was
+        # added to the individual bucket and so multiplied by 0.10, making
+        # shaping_scale=15.0 silently deliver 1.5. The split and every R_* constant are
+        # the spec's and untouched; shaping is our addition and is declared as such in
+        # TRAINING.md.
         shaping = self._shaping_reward()
 
         rewards = SHARED_WEIGHT * shared + INDIVIDUAL_WEIGHT * individual + shaping
@@ -1573,11 +1668,16 @@ class HiveMindMultiAgentEnv(gym.Env):
             row[OBS_SLICES["elapsed_time"]] = elapsed
             row[OBS_SLICES["lidar"]] = scans[i]
 
-            # Message slots. self.messages is all zeros until roadmap step 7, so this
-            # writes zeros over zeros - the wiring is here so step 7 changes behaviour
-            # without changing the dimension.
+            # Message slots, in the same fixed speaker order the pose slots use, so
+            # block b of this slice is the same robot for the whole episode.
+            #
+            # Read from `_heard[i]`, not from `self.messages`: what robot i receives is
+            # what survived the channel into robot i specifically. Reading the raw
+            # broadcasts here would make dropout invisible in the observation while
+            # still costing time in the log, which is the kind of bug that produces a
+            # protocol robust to nothing.
             row[OBS_SLICES["messages"]] = np.concatenate(
-                [self.messages[j] for j in others]
+                [self._heard[i][j] for j in others]
             )
 
         np.clip(obs, -1.0, 1.0, out=obs)
@@ -1606,6 +1706,15 @@ class HiveMindMultiAgentEnv(gym.Env):
             "obs_dim": self.obs_dim,
             "active_cartons": self.active_cartons,
             "is_carrying": list(self.is_carrying),
+            # Communication (roadmap step 7). `message_tokens[j]` is what robot j SAID
+            # this step - MSG_SILENT (-1) when it said nothing, which is every step
+            # under comms=False and the first observation of every episode.
+            # `messages_dropped` counts listener-speaker links the channel lost.
+            # Neither is visible anywhere in the reward, and both are what
+            # scripts/analyse_messages.py reads.
+            "comms": self.comms,
+            "message_tokens": self.message_tokens.tolist(),
+            "messages_dropped": int(self._dropped.sum()),
             "shelf_contacts": self._shelf_contacts(),
             # Normalised scans as the policy sees them, plus the same thing in metres
             # so a human reading a log does not have to undo the normalisation.

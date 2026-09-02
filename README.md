@@ -97,16 +97,6 @@ The stack this is currently developed and tested against:
 The core runtime dependencies are Gymnasium, NumPy, and PyBullet. `requirements.txt` also
 contains the training and utility packages.
 
-### Conda alternative
-
-`environment.yml` is kept for anyone who prefers Conda. It is not the workflow in use and
-pins an older Python (3.10), so it is not verified against the versions in the table above:
-
-```bash
-conda env create -f environment.yml
-conda activate hivemind
-```
-
 ### Smoke test
 
 Confirm the environment imports, constructs, resets, and steps:
@@ -119,23 +109,22 @@ It reports three states -- `PASS` (works now), `TODO` (a roadmap item that is ge
 not built yet), and `FAIL` (a real breakage). Only `FAIL` sets a non-zero exit code, so
 the `TODO` lines double as a progress tracker for the remaining roadmap.
 
-## Run The Pickup Demo
+## Watch It Run
 
-Run the demo from the repository root:
+To watch the scripted baseline solve a warehouse, or a trained checkpoint attempt one:
 
 ```powershell
-.venv\Scripts\python.exe play_multi.py
+.venv\Scripts\python.exe scripts
+un_evaluation.py --baseline greedy --episodes 3 --levels 3
+.venv\Scripts\python.exe test_run.py models
+un_final.zip --num-cartons 4 --stochastic
 ```
 
-The demo opens PyBullet in GUI mode, resets a randomized world, reads the actual resource positions from the environment, and uses bot 0 to:
+`test_run.py` opens PyBullet in GUI mode. Run it both ways: a policy whose argmax has
+collapsed looks frozen under the default and works under `--stochastic`.
 
-1. Navigate to the first available carton using a grid path that avoids shelf cells.
-2. Face the carton and execute pickup.
-3. Stop after the pickup so the carried carton and raised lidar can be inspected.
-
-The other three bots remain in their initial positions. Drop and depot delivery are not currently part of this demo. Despite the historical filename, `play_multi.py` is not currently a multi-bot choreography or an all-resource delivery script.
-
-For a headless smoke test, create the environment with `render_mode=None` and call `reset()` and `step()` from Python:
+To drive the environment directly, create it with `render_mode=None` and call `reset()`
+and `step()`:
 
 ```python
 from hivemind_env.env import HiveMindMultiAgentEnv
@@ -192,11 +181,14 @@ checkpoint. Adding a component means a new `OBS_DIM_V4`, never an edit to V3.
 | `[54:56]` | 2 | depot direction |
 | `[56:57]` | 1 | elapsed time |
 | `[57:129]` | 72 | LiDAR — 270° arc, 0.1–10 m, Gaussian noise |
-| `[129:177]` | 48 | message slots — reserved, all zero until communication lands |
+| `[129:177]` | 48 | message slots — 3 speakers × 16 one-hot tokens, zero when `comms=False` |
 
-The message slots are reserved now precisely so that adding communication later does not
-change the width. The full component table, the encoding of each field and the reasoning
-behind every choice live at the top of `hivemind_env/env.py`.
+The message slots were reserved before communication existed, precisely so that adding it
+would not change the width — and on 2026-09-02 it was added and the width did not move.
+Communication is opt-in (`comms=True`, `train.py --comms`); with it off the slots stay
+zero and every checkpoint trained before it still loads, which is what keeps the
+no-communication baseline a valid control. The full component table, the encoding of each
+field and the reasoning behind every choice live at the top of `hivemind_env/env.py`.
 
 Check it end to end — this drives a robot through a full pickup and delivery and verifies
 each component against PyBullet ground truth:
@@ -273,7 +265,7 @@ valid.
 | 8 | 58 | 30/30 | 122.4 m | 5.4 |
 | 12 | **97** | 30/30 | 232.6 m | 6.7 |
 
-Results are written to `docs_analysis/greedy_baseline_blocked.json`.
+Results are written to `docs_analysis/greedy_baseline.json`.
 
 Note on an earlier version of this table: until 2026-08-31 `run_evaluation.py` passed
 `difficulty_level` to the environment and never `num_cartons`, and the world stores that
@@ -319,22 +311,26 @@ explains what that trade buys and when to replace it.
 
 ```text
 .
-├── environment.yml             Conda environment definition (alternative, not in use)
 ├── requirements.txt            Python dependencies
 ├── pyproject.toml              Package metadata and core dependencies
 ├── TRAINING.md                 Full training runbook: setup, tuning, monitoring, results
-├── play_multi.py               Single-bot navigation, pickup, and depot-drop demo
 ├── smoke_test.py               Import / device / reset / step check; PASS-TODO-FAIL report
 ├── train.py                    Shared-policy PPO training entry point
+├── test_run.py                 Watch a checkpoint in the GUI, argmax or sampled
 ├── scripts/
 │   ├── run_evaluation.py       Fixed-seed evaluation harness; makespan is the headline
 │   ├── verify_observations.py  Drives a full delivery, checking every observation field
 │   ├── verify_rewards.py       Prints reward per step and checks it against the spec
+│   ├── verify_comms.py         The communication channel: routing, dropout, ablations
+│   ├── analyse_messages.py     Is the learned channel a protocol or decoration?
 │   ├── diagnose_incentives.py  Reward budget for stay / random / greedy, with gates
-│   └── probe_policy.py         What a checkpoint actually does: action mix and verdict
+│   ├── probe_policy.py         What a checkpoint actually does: action mix and verdict
+│   ├── probe_pickup.py         Does it press PICKUP when a carton is in reach?
+│   └── watch_run.py            Live compact view of a training log
 └── hivemind_env/
     ├── env.py                  Gymnasium environment and warehouse generation
     ├── greedy.py               Scripted baseline controller; the makespan to beat
+    ├── gridnav.py              BFS and grid helpers shared by the verifiers
     ├── vec_env.py              4 robots -> 4 policy slots sharing one set of weights
     ├── subproc_vec_env.py      Same, one process per warehouse; the fast path
     ├── models.py               HiveMindExtractor: MLP + 1-D CNN over the LiDAR sweep

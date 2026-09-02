@@ -1,48 +1,31 @@
 """
-Presents N four-robot warehouses to Stable-Baselines3 as 4N single-agent environments
-that share one policy.
-
-This is the project roadmap, step 6's "cheap option first":
-
-    Stable-Baselines3 does not do MAPPO out of the box. Try the cheap option first -
-    wrap the env so the 4 robots look like 4 parallel single-agent envs sharing a
-    policy. Only reach for a dedicated multi-agent PPO implementation if that plateaus.
+Presents N four-robot warehouses to Stable-Baselines3 as 4N single-agent slots sharing
+one policy, plus the slot bookkeeping `subproc_vec_env.py` reuses.
 
 WHAT THIS IS, AND WHAT IT IS NOT
 
-It IS parameter sharing: one actor and one critic, applied to each robot's own
+It is parameter sharing: one actor and one critic applied to each robot's own
 observation, trained on the pooled experience of every robot in every world. All four
-robots in a world act simultaneously on the same physics step, so their interactions -
-collisions, racing for the same carton, the shared 90% of the reward - are all real.
+robots act on the same physics step, so collisions, racing for the same carton and the
+shared 90% of the reward are all real.
 
-It is NOT a centralised critic in the MAPPO sense. The critic sees one robot's
-observation, not the joint state. That is a genuine simplification and it is worth
-being clear about why it is tolerable here rather than pretending otherwise: this
-environment's observation is already close to global. Every robot sees all four poses,
-all twelve carton statuses and positions, and the elapsed time. What it does not see is
-the other robots' LiDAR returns and (later) the raw message each is about to send. So
-the value function is estimating from something much closer to full state than a
-typical partially-observed multi-agent setup would give it.
+It is NOT a centralised critic. The critic sees one robot's observation, not the joint
+state. That is tolerable here only because the observation is already close to global -
+every robot sees all four poses, all twelve carton statuses and positions - so what the
+value function misses is the other robots' LiDAR and whatever they are about to say. If
+a run plateaus below the greedy baseline, replacing this with a real CTDE critic is the
+honest next move, ahead of more tuning. With comms on it is the first suspect, because
+the critic cannot see the message that is about to change three other robots' actions.
 
-If step 6 plateaus below the greedy baseline, this is the first thing to replace, and
-the honest way to do it is a real CTDE implementation with an asymmetric critic - not
-more tuning here.
+Two consequences worth stating:
 
-WHY THE SHARED REWARD DOES NOT DOUBLE-COUNT
-
-Each robot's reward already contains its 90% share of the shared term, so pooling four
-slots per world means the shared component appears four times in the batch. That is
-correct for parameter sharing: each robot genuinely did receive that reward. It does
-mean the effective batch is 4x the number of worlds, so `n_steps` counts robot-steps
-rather than world-steps - see the note in train.py about sizing rollouts.
-
-TERMINATION IS PER WORLD, NOT PER ROBOT
-
-A world terminates when all twelve cartons are delivered and truncates at the step
-limit. There is no such thing as one robot finishing early, so all four slots of a
-world go `done` on the same step and reset together. SB3's auto-reset contract is
-honoured per slot: the returned observation is the first of the new episode, and the
-final observation of the old one is placed in `info["terminal_observation"]`.
+  - Each robot's reward already contains its 90% share of the shared term, so pooling
+    four slots per world puts that component in the batch four times. That is correct
+    for parameter sharing - each robot did receive it - but it means `n_steps` counts
+    robot-steps, not world-steps.
+  - Termination is per world. All four slots go `done` together and reset together;
+    SB3's auto-reset contract is honoured per slot, with the old episode's final
+    observation in `info["terminal_observation"]`.
 """
 from __future__ import annotations
 
@@ -50,17 +33,105 @@ import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
-from hivemind_env.env import DEFAULT_OBS_DIM, NUM_AGENTS, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    DEFAULT_OBS_DIM,
+    MOVE_ACTIONS,
+    MSG_TOKENS,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+)
 
 
-class HiveMindSharedPolicyVecEnv(VecEnv):
+def single_slot_spaces(obs_dim: int, comms: bool):
     """
-    `num_worlds` warehouses -> `num_worlds * NUM_AGENTS` policy-facing slots.
+    One policy slot's (observation, action) spaces.
 
-    Slot ordering is world-major: slots [0..3] are world 0's robots 0..3, slots [4..7]
-    are world 1's, and so on. `world_of(slot)` and `agent_of(slot)` make that explicit
-    rather than leaving callers to rediscover the arithmetic.
+    Both backends call this rather than restating it: the action space is baked into
+    saved weights exactly as the observation width is, and a policy trained against one
+    backend has to load against the other.
     """
+    obs = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
+    act = (spaces.MultiDiscrete([MOVE_ACTIONS, MSG_TOKENS]) if comms
+           else spaces.Discrete(MOVE_ACTIONS))
+    return obs, act
+
+
+def slot_infos(info, world):
+    """
+    A world's info dict, split into the per-robot view a callback reads.
+
+    Deliberately narrow: the env's full info carries two LiDAR arrays per robot (576
+    floats per world-step) that exist for diagnostics, and under the subprocess backend
+    every field here is pickled and shipped down a pipe on every single step.
+    """
+    return [
+        {
+            "world": world,
+            "agent": a,
+            "is_success": info["is_success"],
+            "all_delivered": info["all_delivered"],
+            "delivered": info["delivered"],
+            "remaining_resources": info["remaining_resources"],
+            "collisions": info["collisions"],
+            "picked_up": info["pickups"][a],
+            "delivered_by_me": info["deliveries"][a],
+            "invalid_action": info["invalid_actions"][a],
+            # The pair MessageStatsCallback needs for I(token; carrying). The token is
+            # -1 with comms off, which is what makes that callback a no-op then.
+            "message_token": info["message_tokens"][a],
+            "is_carrying": bool(info["is_carrying"][a]),
+        }
+        for a in range(NUM_AGENTS)
+    ]
+
+
+class SlotLayout:
+    """
+    Slot <-> (world, agent) arithmetic, shared by both backends.
+
+    Slot ordering is world-major: slots 0-3 are world 0's robots, 4-7 are world 1's.
+    SB3 addresses attributes per slot but they live on the world, so reads map
+    slot -> world and writes apply once per world any selected slot belongs to.
+    """
+
+    num_worlds: int
+
+    def world_of(self, slot: int) -> int:
+        return slot // NUM_AGENTS
+
+    def agent_of(self, slot: int) -> int:
+        return slot % NUM_AGENTS
+
+    def _slots(self, world: int):
+        start = world * NUM_AGENTS
+        return range(start, start + NUM_AGENTS)
+
+    def _worlds_for(self, indices):
+        if indices is None:
+            return list(range(self.num_worlds))
+        if isinstance(indices, int):
+            indices = [indices]
+        return sorted({self.world_of(i) for i in indices})
+
+    def _slot_indices(self, indices):
+        if indices is None:
+            return list(range(self.num_envs))
+        if isinstance(indices, int):
+            return [indices]
+        return list(indices)
+
+    def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
+        return [False] * len(self._slot_indices(indices))
+
+    def _reshape_actions(self, actions):
+        """(slots,) without comms, (slots, 2) with - column 1 being the token."""
+        actions = np.asarray(actions, dtype=np.int64)
+        return (actions.reshape(self.num_envs, 2) if self.comms
+                else actions.reshape(self.num_envs))
+
+
+class HiveMindSharedPolicyVecEnv(SlotLayout, VecEnv):
+    """`num_worlds` warehouses, stepped sequentially in this process."""
 
     metadata = {"render_modes": []}
 
@@ -76,38 +147,25 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
             for _ in range(self.num_worlds)
         ]
 
-        # Per-world seeds. World generation runs off module-level random state that only
-        # reset(seed=...) touches, so without distinct seeds every world would build the
-        # identical warehouse and the extra parallelism would buy nothing but throughput.
+        # World generation runs off the module-level random state that only
+        # reset(seed=...) touches, so without distinct per-world seeds every world would
+        # build the identical warehouse and the parallelism would buy only throughput.
         self._base_seed = seed
         self._episode_counter = [0] * self.num_worlds
 
-        single_obs = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
-        single_act = spaces.Discrete(int(self.envs[0].action_space.nvec[0]))
-        super().__init__(self.num_worlds * NUM_AGENTS, single_obs, single_act)
+        self.comms = bool(env_kwargs.get("comms", False))
+        super().__init__(self.num_worlds * NUM_AGENTS,
+                         *single_slot_spaces(obs_dim, self.comms))
 
         self._obs = np.zeros((self.num_envs, obs_dim), dtype=np.float32)
         self._actions: np.ndarray | None = None
 
-    # -- slot <-> (world, agent) ------------------------------------------------
-    def world_of(self, slot: int) -> int:
-        return slot // NUM_AGENTS
-
-    def agent_of(self, slot: int) -> int:
-        return slot % NUM_AGENTS
-
-    def _slots(self, world: int):
-        start = world * NUM_AGENTS
-        return range(start, start + NUM_AGENTS)
-
     def _world_seed(self, world: int):
         if self._base_seed is None:
             return None
-        # Distinct per world AND per episode, so a world does not replay one warehouse
-        # for the whole run.
+        # Distinct per world AND per episode, so a world does not replay one warehouse.
         return self._base_seed + 1000 * world + self._episode_counter[world]
 
-    # -- VecEnv API -------------------------------------------------------------
     def reset(self):
         for w, env in enumerate(self.envs):
             obs, _ = env.reset(seed=self._world_seed(w))
@@ -117,7 +175,7 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
         return self._obs.copy()
 
     def step_async(self, actions: np.ndarray) -> None:
-        self._actions = np.asarray(actions, dtype=np.int64).reshape(self.num_envs)
+        self._actions = self._reshape_actions(actions)
 
     def step_wait(self):
         rewards = np.zeros(self.num_envs, dtype=np.float32)
@@ -126,43 +184,25 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
 
         for w, env in enumerate(self.envs):
             slots = list(self._slots(w))
-            joint = self._actions[slots]
-            obs, rew, terminated, truncated, info = env.step(joint)
+            obs, rew, terminated, truncated, info = env.step(self._actions[slots])
             done = bool(terminated or truncated)
+            world_infos = slot_infos(info, w)
 
             for a, slot in enumerate(slots):
                 rewards[slot] = rew[a]
                 dones[slot] = done
-                # Per-slot info: the world's shared facts plus this robot's own events,
-                # so a callback reading infos[slot] does not have to know the layout.
-                infos[slot] = {
-                    "world": w,
-                    "agent": a,
-                    "is_success": info["is_success"],
-                    "all_delivered": info["all_delivered"],
-                    "delivered": info["delivered"],
-                    "remaining_resources": info["remaining_resources"],
-                    "collisions": info["collisions"],
-                    "picked_up": info["pickups"][a],
-                    "delivered_by_me": info["deliveries"][a],
-                    "invalid_action": info["invalid_actions"][a],
-                }
+                infos[slot] = world_infos[a]
 
             if done:
-                # SB3 auto-reset contract: hand back the first observation of the new
-                # episode and stash the last one of the old episode in the info dict.
-                # Getting this wrong is silent - it just bootstraps values across an
-                # episode boundary and slightly poisons the advantage estimates.
+                # Getting the auto-reset contract wrong is silent: it bootstraps values
+                # across an episode boundary and quietly poisons the advantages.
                 for a, slot in enumerate(slots):
                     infos[slot]["terminal_observation"] = obs[a].copy()
                     infos[slot]["TimeLimit.truncated"] = bool(truncated and not terminated)
-                new_obs, _ = env.reset(seed=self._world_seed(w))
+                obs, _ = env.reset(seed=self._world_seed(w))
                 self._episode_counter[w] += 1
-                for a, slot in enumerate(slots):
-                    self._obs[slot] = new_obs[a]
-            else:
-                for a, slot in enumerate(slots):
-                    self._obs[slot] = obs[a]
+            for a, slot in enumerate(slots):
+                self._obs[slot] = obs[a]
 
         return self._obs.copy(), rewards, dones, infos
 
@@ -171,26 +211,9 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
             try:
                 env.close()
             except Exception:
-                # close() is not idempotent on the underlying env and a partially torn
-                # down vec env must not mask the real error with a disconnect error.
+                # A partially torn down vec env must not mask the real error with a
+                # disconnect error.
                 pass
-
-    # -- attribute plumbing -----------------------------------------------------
-    # SB3 addresses these per slot, but the attributes live on the world. Reading maps
-    # slot -> world; writing applies to each world a selected slot belongs to, once.
-    def _worlds_for(self, indices):
-        if indices is None:
-            return list(range(self.num_worlds))
-        if isinstance(indices, int):
-            indices = [indices]
-        return sorted({self.world_of(i) for i in indices})
-
-    def _slot_indices(self, indices):
-        if indices is None:
-            return list(range(self.num_envs))
-        if isinstance(indices, int):
-            return [indices]
-        return list(indices)
 
     def get_attr(self, attr_name: str, indices=None) -> list:
         return [getattr(self.envs[self.world_of(i)], attr_name)
@@ -203,6 +226,3 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
     def env_method(self, method_name: str, *args, indices=None, **kwargs) -> list:
         return [getattr(self.envs[w], method_name)(*args, **kwargs)
                 for w in self._worlds_for(indices)]
-
-    def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
-        return [False] * len(self._slot_indices(indices))

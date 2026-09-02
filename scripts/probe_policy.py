@@ -1,60 +1,63 @@
 """
 What is a checkpoint actually doing? Action mix, pickups, deliveries, collisions.
 
-WHY THIS AND NOT THE REWARD CURVE
+    scripts/probe_policy.py models/run_final.zip --num-cartons 4
 
 `ep_rew_mean` cannot distinguish "learned to stand still" from "working but not
-finishing", and both look like a smoothly rising curve. Three runs were misread that way.
-The distinction is visible in one place: what the policy actually does.
+finishing", and both look like a smoothly rising curve - three runs were misread that
+way. The distinction is only visible in what the policy does:
 
-    stay-like     : stay >> everything, 0 pickups, 0 deliveries
-    thrashing     : fwd ~= back, 0 net progress          <- the BC clone's failure
-    working       : PICKUP and DROP non-zero, deliveries > 0
+    stay-like  stay >> everything, 0 pickups, 0 deliveries
+    thrashing  fwd ~= back, no net progress          <- the BC clone's failure
+    working    PICKUP and DROP non-zero, deliveries > 0
 
-Deterministic and stochastic are both reported because they can disagree sharply. The
-behaviour-cloned policy scored 0.0 deliveries under argmax and 2.1 under sampling: greedy
-uses a single `backward` for a 180-degree turn, so the demonstrator is bimodal from one
-observation and the argmax flips between the modes. A policy is not broken merely because
-its argmax is.
-
-    .venv\\Scripts\\python.exe scripts/probe_policy.py models/canary_final.zip --num-cartons 4
+Deterministic and stochastic are both reported because they disagree sharply: greedy
+uses a single `backward` for a 180-degree turn, so a cloned demonstrator is bimodal from
+one observation and its argmax flips between the modes. A policy is not broken merely
+because its argmax is.
 """
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 
 import numpy as np
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+from stable_baselines3 import PPO
 
-from stable_baselines3 import PPO  # noqa: E402
+from hivemind_env.env import (
+    ACTION_NAMES,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+    joint_from_slot_actions,
+    policy_uses_comms,
+)
+from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device
 
-from hivemind_env.env import NUM_AGENTS, HiveMindMultiAgentEnv  # noqa: E402
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device  # noqa: E402
-
-ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
 
 
-def probe(model, episodes, num_cartons, deterministic, seed0=1000):
+def probe(model, episodes, num_cartons, deterministic, seed0=1000, message_mode="learned"):
+    # A comms checkpoint needs a comms env or its own actions are rejected. Read off
+    # the policy rather than asking for a flag.
+    comms = policy_uses_comms(model)
     counts = np.zeros(7, dtype=int)
     pickups = deliveries = collisions = completed = 0
     lengths, rewards, delivered = [], [], []
 
     for ep in range(episodes):
-        env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons)
+        env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons,
+                                    comms=comms, message_mode=message_mode,
+                                    msg_dropout=0.0)
         obs, _ = env.reset(seed=seed0 + ep)
         total = np.zeros(NUM_AGENTS)
         terminated = False
 
         for _ in range(env.max_steps):
-            actions, _ = model.predict(np.asarray(obs, dtype=np.float32),
-                                       deterministic=deterministic)
-            actions = np.asarray(actions).reshape(-1)[:NUM_AGENTS]
-            for a in actions:
+            raw, _ = model.predict(np.asarray(obs, dtype=np.float32),
+                                   deterministic=deterministic)
+            actions = joint_from_slot_actions(raw, NUM_AGENTS)
+            moves = actions[:, 0] if actions.ndim == 2 else actions
+            for a in moves:
                 counts[int(a)] += 1
             obs, r, terminated, truncated, info = env.step(actions)
             total += np.asarray(r)

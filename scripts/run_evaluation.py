@@ -1,33 +1,17 @@
 """
-Reproducible evaluation of a trained policy across the carton-count curriculum levels.
+Reproducible evaluation of a policy across the carton-count curriculum levels.
 
-Ported from `single-agent-rl` (roadmap step 2) and adapted for the 4-robot warehouse.
-Writes a JSON summary plus a formatted text report. Episodes use fixed per-episode seeds
-(level * 1000 + episode index), so a rerun reproduces the same maps and the same numbers.
+    scripts/run_evaluation.py --baseline greedy --episodes 30
+    scripts/run_evaluation.py --model models/run_final.zip --episodes 30
 
-Why the original exists: the figures in docs_analysis/09 were produced before the
-pickup/drop takeover landed in `5b8c84b`, so they describe an environment the code no
-longer has. Fixed seeds and a written-down harness are how that stops happening.
+MAKESPAN is the headline - steps to deliver every carton - not success rate, because
+that is the number the greedy baseline is quoted against. Distance, collisions and
+message entropy are reported alongside (roadmap step 8). Episodes use fixed per-episode
+seeds (level * 1000 + index), so a rerun reproduces the same maps and the same numbers,
+and --baseline runs the harness with no model at all so the harness itself is testable.
 
-WHAT CHANGED IN THE PORT (each site is marked "PORT NOTE"):
-  - the headline metric is MAKESPAN (steps to deliver all 12), not success rate.
-    The project roadmap, step 8: "Track makespan (headline), distance travelled, collision count,
-    and message entropy." Success rate is still reported, but makespan is the number the
-    greedy baseline (step 5) is compared against.
-  - levels are carton counts (4 / 8 / 12), not obstacle-density levels 1-4
-  - --policy-mode selects how a policy is turned into a joint MultiDiscrete action
-  - the single-agent info keys (requested_action / executed_action / action_overridden)
-    are gone; this env never overrides the policy, so there is no override rate
-  - --baseline runs the harness with a random policy and no model, so the harness itself
-    is testable before step 6 produces anything to load
-
-STATUS: roadmap steps 3 and 4 have landed, so episodes now end on their own and rewards
-are real. What is still missing is a policy to evaluate (step 6) and the greedy baseline
-(step 5) that gives the makespan number meaning.
-
-Usage:
-    .venv\\Scripts\\python.exe scripts/run_evaluation.py --baseline random --episodes 5
-    .venv\\Scripts\\python.exe scripts/run_evaluation.py --model models/xxx.zip --episodes 30
+A comms policy is detected from its action space, not a flag, and scored with its
+channel live; --message-mode breaks the channel to measure what it was worth.
 """
 import argparse
 import json
@@ -40,14 +24,18 @@ from datetime import date
 
 import numpy as np
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    ACTION_NAMES,
+    DEFAULT_OBS_DIM,
+    MESSAGE_MODES,
+    MOVE_ACTIONS,
+    MSG_TOKENS,
+    HiveMindMultiAgentEnv,
+)
 from hivemind_env.greedy import GreedyController
 from hivemind_env.training import (
     CURRICULUM_CARTONS,
+    entropy_bits,
     NUM_AGENTS,
     SUCCESS_REWARD_THRESHOLD,
     load_policy,
@@ -58,7 +46,6 @@ from hivemind_env.training import (
 # import moved into _load_model(). It stays there: evaluation of a --baseline run should
 # not need the network module at all.
 
-ACTION_NAMES = ["Forward", "Backward", "Turn Left", "Turn Right", "Pick Up", "Drop Off", "Stay"]
 
 # PORT NOTE: LEVEL_LABELS described obstacle density on the single-agent branch. Here the
 # ladder is carton count, mirroring hivemind_env.training.CURRICULUM_CARTONS so the
@@ -138,16 +125,23 @@ def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start
 
     if policy_mode == "joint":
         action, lstm_states = _predict(obs, lstm_states)
-        return np.asarray(action, dtype=int).reshape(NUM_AGENTS), lstm_states
+        action = np.asarray(action, dtype=int)
+        return action.reshape(NUM_AGENTS, -1).squeeze(-1), lstm_states
 
     # shared: obs is expected to be indexable per agent (obs[i] is agent i's vector).
+    #
+    # A communicating policy returns TWO numbers per robot - movement and the token it
+    # broadcasts. Taking element [0] and discarding the rest, which is what this did
+    # before roadmap step 7, would evaluate a comms policy with a permanently silent
+    # channel and report the result as its score. The rows are stacked whole instead,
+    # so the joint action is (4,) or (4, 2) exactly as the env expects.
     if lstm_states is None:
         lstm_states = [None] * NUM_AGENTS
-    actions = []
+    rows = []
     for i in range(NUM_AGENTS):
         act, lstm_states[i] = _predict(obs[i], lstm_states[i])
-        actions.append(int(np.asarray(act).reshape(-1)[0]))
-    return np.array(actions, dtype=int), lstm_states
+        rows.append(np.asarray(act, dtype=int).reshape(-1))
+    return np.stack(rows).squeeze(-1) if rows[0].size == 1 else np.stack(rows), lstm_states
 
 
 def _distance_travelled(prev_positions, positions):
@@ -159,7 +153,8 @@ def _distance_travelled(prev_positions, positions):
 
 
 def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_mode,
-                   max_steps=None, verbose=True):
+                   max_steps=None, verbose=True, comms=False, message_mode="learned",
+                   msg_dropout=0.0):
     # `num_cartons` is what makes the level real, and it was missing until 2026-08-31.
     # This passed difficulty_level only - which the world stores and nothing reads - so
     # every level here ran the full 12 cartons while the summary table dutifully
@@ -169,9 +164,14 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
     # Anything measured through this harness before that date is a 12-carton number
     # whatever its label said.
     cartons = CURRICULUM_CARTONS.get(difficulty, difficulty)
+    # The channel is off unless the policy has a token head. `msg_dropout` defaults to
+    # 0 here and not to the training value: an evaluation is a measurement, and rerunning
+    # it should not move the number by a few percent because a different set of links
+    # happened to drop. Ask for dropout explicitly to measure robustness to it.
     env = HiveMindMultiAgentEnv(
         render_mode=None, difficulty_level=difficulty, obs_dim=obs_dim,
-        num_cartons=cartons,
+        num_cartons=cartons, comms=comms, message_mode=message_mode,
+        msg_dropout=msg_dropout,
     )
     # PORT NOTE - this guard is new and it is not optional.
     #
@@ -185,7 +185,8 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
     step_budget = max_steps if max_steps is not None else env.max_steps
 
     episodes = []
-    action_counts = np.zeros(7, dtype=int)
+    action_counts = np.zeros(MOVE_ACTIONS, dtype=int)
+    token_counts = np.zeros(MSG_TOKENS, dtype=int)
     total_steps = 0
 
     for ep in range(num_episodes):
@@ -221,8 +222,14 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
             obs, reward, terminated, truncated, info = env.step(action)
             agent_rewards += np.asarray(reward, dtype=float)
             steps += 1
-            for a in np.asarray(action).reshape(-1):
+            moves = np.asarray(action)
+            moves = moves[:, 0] if moves.ndim == 2 else moves
+            for a in moves:
                 action_counts[int(a)] += 1
+            if comms:
+                for tok in info["message_tokens"]:
+                    if tok >= 0:
+                        token_counts[int(tok)] += 1
 
             if controller is not None:
                 controller.sync_after_step()
@@ -287,7 +294,16 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         "avg_steps": round(float(np.mean([e["steps"] for e in episodes])), 1),
         "avg_reward_total": round(float(np.mean([e["reward_total"] for e in episodes])), 2),
         "std_reward_total": round(float(np.std([e["reward_total"] for e in episodes])), 2),
-        "action_distribution": {ACTION_NAMES[i]: int(action_counts[i]) for i in range(7)},
+        "action_distribution": {ACTION_NAMES[i]: int(action_counts[i]) for i in range(MOVE_ACTIONS)},
+        # Roadmap step 8's fourth headline metric. Reported here so the number that
+        # accompanies a makespan comes from the same episodes that produced it - but
+        # entropy alone does not show a protocol emerged, and PPO's entropy bonus pushes
+        # it up whether or not one did. scripts/analyse_messages.py is where the claim
+        # gets made, because it also runs the interventions.
+        "comms": comms,
+        "message_mode": message_mode if comms else None,
+        "token_counts": token_counts.tolist() if comms else None,
+        "token_entropy_bits": round(entropy_bits(token_counts, counts=True), 3) if comms and token_counts.sum() else None,
         "episodes": episodes,
     }
 
@@ -295,13 +311,13 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
 def _load_model(path, policy_mode):
     if policy_mode in ("random", "greedy"):
         return None, False
-    try:
-        # SB3 unpickles the feature extractor by name, so the module must be importable
-        # before load. Lazy because models.py is empty until roadmap step 6.
-        from hivemind_env.models import CustomCombinedExtractor  # noqa: F401
-    except ImportError:
-        print("  WARNING: hivemind_env/models.py is empty (roadmap step 6). If the saved\n"
-              "           policy used a custom feature extractor, SB3 will fail to unpickle it.")
+    # SB3 unpickles the feature extractor by name, so the class must be importable
+    # before load. Imported lazily: a --baseline run should not need the network module.
+    #
+    # This named CustomCombinedExtractor until 2026-09-02 - a class from the single-agent
+    # branch that has never existed here - so the guard always fired and every model
+    # evaluation printed a warning saying models.py was empty.
+    from hivemind_env.models import HiveMindExtractor  # noqa: F401
     return load_policy(path, device="cpu")
 
 
@@ -328,6 +344,19 @@ def main():
                              "Defaults to env.max_steps (2000). Lower it for smoke runs - "
                              "the env does not raise truncated yet (roadmap step 4), so "
                              "without this the harness would run forever.")
+    parser.add_argument("--message-mode", choices=list(MESSAGE_MODES), default="learned",
+                        help="Intervention on the communication channel, ignored unless "
+                             "the loaded policy has a token head. 'learned' is what the "
+                             "speakers said; 'silent', 'shuffled' and 'random' break it "
+                             "in three different ways. Scoring the same checkpoint under "
+                             "'learned' and 'shuffled' is what turns a channel into a "
+                             "result - if the makespan does not move, nothing is being "
+                             "communicated. scripts/analyse_messages.py runs all four "
+                             "in one pass.")
+    parser.add_argument("--msg-dropout", type=float, default=0.0,
+                        help="Link dropout during evaluation (default 0: a measurement "
+                             "should be repeatable). Set it to the training value to "
+                             "measure how much the policy needs a reliable channel.")
     parser.add_argument("--levels", type=int, nargs="+", default=sorted(CURRICULUM_CARTONS))
     parser.add_argument("--out", default="docs_analysis/evaluation_results.json")
     parser.add_argument("--force", action="store_true",
@@ -393,6 +422,19 @@ def main():
     if model is not None:
         print(f"  Algorithm  : {'RecurrentPPO' if recurrent else 'PPO'}", flush=True)
 
+    # Whether to build a communicating env is read off the policy, not off a flag. A
+    # comms checkpoint emits two numbers per robot; asking the user to remember which
+    # kind they trained is how a communicating policy gets scored with its channel
+    # switched off and the result written into a results file as its makespan.
+    comms = bool(model is not None and getattr(model.action_space, "shape", ()) == (2,))
+    if comms:
+        print(f"  Comms      : ON - {MSG_TOKENS}-token channel, "
+              f"message_mode={args.message_mode}, dropout {args.msg_dropout:.0%}")
+    elif model is not None:
+        print("  Comms      : off - this checkpoint has no token head (step 6 baseline)")
+        if args.message_mode != "learned":
+            print("               --message-mode is ignored: there are no messages.")
+
     started = time.time()
     results = {}
     for level in args.levels:
@@ -400,7 +442,8 @@ def main():
         print(f"\n{'='*84}\n  Level {level} - {label}\n{'='*84}", flush=True)
         results[level] = evaluate_level(
             model, level, args.episodes, args.obs_dim, recurrent, policy_mode,
-            max_steps=args.max_steps,
+            max_steps=args.max_steps, comms=comms, message_mode=args.message_mode,
+            msg_dropout=args.msg_dropout,
         )
         r = results[level]
         lo, hi = r["completion_ci95"]
@@ -412,6 +455,9 @@ def main():
         print(f"  Reward    : {r['avg_reward_total']:.2f} +/- {r['std_reward_total']:.2f} "
               f"(summed over {NUM_AGENTS} agents)")
         print(f"  Steps     : mean {r['avg_steps']:.0f}", flush=True)
+        if r["token_entropy_bits"] is not None:
+            print(f"  Msg entropy: {r['token_entropy_bits']:.2f} bits of a possible "
+                  f"{math.log2(MSG_TOKENS):.1f}  (mode: {r['message_mode']})", flush=True)
 
     elapsed = time.time() - started
     overall_eps = sum(results[l]["num_episodes"] for l in results)
