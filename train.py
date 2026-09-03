@@ -50,6 +50,7 @@ from hivemind_env.models import DEFAULT_POLICY_KWARGS
 from hivemind_env.training import (
     INFERENCE_CUSTOM_OBJECTS,
     CurriculumCallback,
+    EpisodeStatsCallback,
     MessageStatsCallback,
     get_device,
     linear_schedule,
@@ -185,6 +186,13 @@ def main():
                         "meaningless - token distribution. Lower it to ~0.003 if "
                         "comms/mi_carrying_bits stays at zero while "
                         "comms/token_entropy_bits sits at its 4.0 ceiling.")
+    p.add_argument("--masked", action="store_true",
+                   help="Train with MaskablePPO, which cannot select an action the env "
+                        "would refuse. Measured on nocomm2_final at 4 cartons, 25%% of "
+                        "every episode was PICKUP pressed with nothing in reach. This is "
+                        "a DIFFERENT ALGORITHM, so a masked checkpoint is not "
+                        "interchangeable with a plain one - keep both arms of the "
+                        "communication comparison on the same setting.")
     p.add_argument("--smoke", action="store_true",
                    help="Tiny run that exercises every code path in a minute or two.")
     args = p.parse_args()
@@ -233,6 +241,7 @@ def main():
              f"MultiDiscrete([7, {MSG_TOKENS}]) per slot"
              if args.comms else "off - message slots zero (step 6 baseline)"))
     print(f"  ent_coef     : {args.ent_coef}")
+    print(f"  algorithm    : {'MaskablePPO - invalid actions cannot be selected' if args.masked else 'PPO'}")
     print(f"  backend      : {args.backend}"
           + ("" if args.backend == "subproc" else "  (sequential - one core only)"),
           flush=True)
@@ -243,7 +252,16 @@ def main():
                     shaping_scale=args.shaping_scale, comms=args.comms,
                     msg_dropout=args.msg_dropout)
 
-    model = PPO(
+    # MaskablePPO is API-compatible with PPO for everything below; it differs only in
+    # asking the env for `action_masks()` before sampling. Keeping one constructor means
+    # the hyperparameters cannot drift between the two arms.
+    if args.masked:
+        from sb3_contrib import MaskablePPO
+        algo = MaskablePPO
+    else:
+        algo = PPO
+
+    model = algo(
         "MlpPolicy",
         env,
         learning_rate=linear_schedule(args.lr),
@@ -288,7 +306,9 @@ def main():
     n_params = sum(q.numel() for q in model.policy.parameters())
     print(f"  policy params: {n_params:,}\n", flush=True)
 
-    callbacks = []
+    # Always on: `success_rate` alone cannot distinguish "delivers nothing" from
+    # "delivers all but the last one", and a 20M-step run was lost to exactly that.
+    callbacks = [EpisodeStatsCallback(check_freq=2048)]
     if args.comms:
         callbacks.append(MessageStatsCallback(check_freq=2048))
     if args.curriculum:

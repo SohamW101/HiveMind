@@ -53,7 +53,7 @@ from hivemind_env.env import (
     policy_uses_comms,
 )
 from hivemind_env.greedy import GreedyController
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device
+from hivemind_env.training import get_device, is_maskable, load_policy
 
 PICKUP = 4
 
@@ -130,6 +130,7 @@ def run(actor, mode, episodes, num_cartons, deterministic, seed0=1000):
     # A comms checkpoint emits a token alongside every movement and needs an env that
     # accepts one. Read it off the policy; the greedy controller never speaks.
     comms = mode == "policy" and policy_uses_comms(actor)
+    masked = mode == "policy" and is_maskable(actor)
 
     for ep in range(episodes):
         env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons,
@@ -148,8 +149,9 @@ def run(actor, mode, episodes, num_cartons, deterministic, seed0=1000):
             if mode == "greedy":
                 actions = np.asarray(controller.act(), dtype=int)
             else:
+                kw = {"action_masks": env.action_masks()} if masked else {}
                 raw, _ = actor.predict(np.asarray(obs, dtype=np.float32),
-                                       deterministic=deterministic)
+                                       deterministic=deterministic, **kw)
                 actions = joint_from_slot_actions(raw, NUM_AGENTS)
 
             # Movement only. The conversion this script measures is about PICKUP, and
@@ -283,9 +285,8 @@ def main():
         report("greedy", st)
         return
 
-    from stable_baselines3 import PPO
     device = get_device()
-    model = PPO.load(args.model, device=device, custom_objects=INFERENCE_CUSTOM_OBJECTS)
+    model, _ = load_policy(args.model, device=device)
 
     print(f"  {os.path.basename(args.model)} at {label}")
     print("=" * 78)

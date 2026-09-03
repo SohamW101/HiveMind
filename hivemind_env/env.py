@@ -5,6 +5,7 @@ import pybullet as pb
 import pybullet_data
 import random
 import math
+from collections import deque
 import time
 
 # =============================================================================
@@ -338,8 +339,27 @@ DEPOT_RADIUS_CELLS = 1.5
 # A scale this large is safe because with the shaping gamma at 1 the episode total
 # telescopes exactly to scale x (Phi_end - Phi_start), independent of path: it changes
 # gradient magnitude and nothing else. Re-run scripts/diagnose_incentives.py after ANY
-# change to Phi - none of this arithmetic survives a redefinition.
-SHAPING_SCALE_DEFAULT = 30.0
+# change to Phi - none of this arithmetic survives a redefinition, as the next paragraph
+# is the proof of.
+#
+# 30.0 -> 60.0 on 2026-09-03, and it is NOT a retune. Phi's distance term was bounded
+# into [0, 0.5] that day (to make a pickup and a delivery provably non-negative - see
+# _potential), which halved the gain per cell and dropped EV(move) to +0.048 against a
+# +0.05 gate. Doubling the scale restores the per-cell gradient to exactly what it was:
+#
+#     old   30 x (1 cell / 2*span metres)          = 30 x 0.0385 = 1.155 per cell
+#     new   60 x 0.5 x (1 cell / 26 cells)         = 60 x 0.0192 = 1.155 per cell
+#
+# So the gradient the policy sees is unchanged and only its source is - Euclidean
+# distance became geodesic. That is the point: the number moved so the behaviour would
+# not.
+SHAPING_SCALE_DEFAULT = 60.0
+
+# Upper bound on the geodesic distance Phi measures, in grid cells. The distance term is
+# 0.5 * min(1, cells / this), so it stays inside [0, 0.5] and both task transitions come
+# out non-negative - see _potential. 2 x grid_size = 26; the longest real path measured
+# across seeds 1000-1009 is 24 cells, so it saturates only on routes that do not occur.
+GEODESIC_MAX_CELLS = 26
 
 
 def _build_slices():
@@ -525,6 +545,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.idle_penalises_turning = idle_penalises_turning
         self.lidar_noise = lidar_noise
         self._lidar_cache = None
+        self._dist_cache = None
         self.render_mode = render_mode
         self.num_agents = NUM_AGENTS
         self.difficulty_level = difficulty_level
@@ -666,6 +687,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         # `_colliding_pairs` holds the pairs already in contact, so a collision is
         # charged once per *event* rather than once per step for as long as two
         # robots stay overlapped - the spec says "per collision event".
+        self._dist_cache = None
         self._colliding_pairs = set()
         self._episode_reward = np.zeros(self.num_agents, dtype=np.float64)
         self._makespan_awarded = False
@@ -911,6 +933,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.current_step += 1
         num_substeps = self.substeps
         self._lidar_cache = None
+        self._dist_cache = None
 
         # Per-step reward events (spec S3). Filled by the action loop below and
         # consumed by _compute_rewards() after the physics has settled.
@@ -1154,6 +1177,59 @@ class HiveMindMultiAgentEnv(gym.Env):
 
         return self._get_obs(), rewards.tolist(), terminated, truncated, info
 
+    def action_masks(self):
+        """
+        Which movement actions are legal right now, per robot: (num_agents, MOVE_ACTIONS)
+        of bool, plus an all-True block per token when comms are on.
+
+        Only read by MaskablePPO (`train.py --masked`). Plain PPO never calls it, so
+        this changes nothing unless the flag is passed.
+
+        WHY IT IS WORTH HAVING
+
+        Measured on nocomm2_final at 4 cartons: 1,480 of 6,000 robot-steps were PICKUP
+        pressed with nothing in reach - 25% of every episode, and 88% of all PICKUP
+        presses. `stay` took another 29%. Those actions are knowable-invalid from the
+        state the policy is already given, so the network is spending capacity learning a
+        rule the environment could simply enforce.
+
+        Note the masks describe the SAME conditions step() already checks before charging
+        R_INVALID_ACTION - this method and that branch must not drift apart. Anything
+        masked out here would have been refused there anyway.
+
+        Turning and staying are always legal. Only forward and backward can be blocked by
+        geometry, and only they can collide.
+        """
+        masks = np.ones((self.num_agents, MOVE_ACTIONS), dtype=bool)
+
+        for i in range(self.num_agents):
+            x, y, yaw_norm = self._canonical_pose(i)
+            yaw = yaw_norm * 2.0 * math.pi
+            ahead = (x + self.cell_size * math.cos(yaw), y + self.cell_size * math.sin(yaw))
+            behind = (x - self.cell_size * math.cos(yaw), y - self.cell_size * math.sin(yaw))
+            masks[i, 0] = self._can_enter(*ahead)
+            masks[i, 1] = self._can_enter(*behind)
+
+            carrying = self.is_carrying[i]
+            masks[i, 4] = (not carrying) and self._carton_within_reach(i)
+            masks[i, 5] = carrying and self._at_depot(i)
+
+        if not self.comms:
+            return masks
+        # Every token is always sayable; the mask exists only so the widths line up with
+        # MultiDiscrete([MOVE_ACTIONS, MSG_TOKENS]).
+        tokens = np.ones((self.num_agents, MSG_TOKENS), dtype=bool)
+        return np.concatenate([masks, tokens], axis=1)
+
+    def _carton_within_reach(self, agent_idx):
+        """Is an unclaimed carton inside the pickup radius? The same test step() makes."""
+        x, y, _ = self._canonical_pose(agent_idx)
+        for rid in self.resource_ids:
+            p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+            if math.hypot(p[0] - x, p[1] - y) <= self.cell_size * 1.5:
+                return True
+        return False
+
     def _broadcast(self, tokens):
         """
         Encode this step's tokens and push them through the channel.
@@ -1283,56 +1359,134 @@ class HiveMindMultiAgentEnv(gym.Env):
         x, y, _ = self._canonical_pose(agent_idx)
         return math.hypot(x - dep[0], y - dep[1]) <= self.cell_size * DEPOT_RADIUS_CELLS
 
+    def _geodesic_from(self, cell):
+        """
+        BFS over enterable cells from `cell` -> {cell: steps}. Cached per env step.
+
+        Four of these per step over a 169-cell grid is nothing next to the physics, and
+        it is the difference between a distance a robot can actually walk and one that
+        pretends shelves are not there.
+        """
+        if self._dist_cache is None:
+            self._dist_cache = {}
+        cached = self._dist_cache.get(cell)
+        if cached is not None:
+            return cached
+
+        dist = {cell: 0}
+        queue = deque([cell])
+        while queue:
+            cur = queue.popleft()
+            r, c = cur
+            for nb in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                if nb in dist or nb in self.blocked_cells:
+                    continue
+                if not (0 <= nb[0] < self.grid_size and 0 <= nb[1] < self.grid_size):
+                    continue
+                dist[nb] = dist[cur] + 1
+                queue.append(nb)
+
+        self._dist_cache[cell] = dist
+        return dist
+
     def _potential(self, agent_idx):
         """
         Phi(s) for one robot: minus the work left to do, in units of cartons.
 
             Phi_i = -( n_undelivered
                        + (0.5 if not carrying else 0.0)
-                       + d_i(objective) / (2 * span) )
+                       + 0.5 * min(1, geodesic_cells / GEODESIC_MAX_CELLS) )
 
-        Objective is the depot while carrying, the nearest available carton otherwise.
+        Objective is the depot while carrying, else the nearest carton still on the
+        floor, else - if every remaining carton is in someone's gripper - the nearest
+        undelivered carton wherever it is.
 
-        WHY NOT PLAIN DISTANCE
+        THREE DEFECTS THIS HAS HAD, ALL MEASURED
 
-        It was plain `-d(objective)/span` until 2026-08-31, with the objective switching
-        the moment `is_carrying` flipped - so Phi jumped downward at exactly the
-        transition the task is built around and PICKING UP A CARTON WAS PUNISHED. On a
-        perfect greedy episode all four pickups scored negative total reward (-0.469,
-        -0.107, -0.399, -0.698); the spec's +1.0 own-pickup, weighted to +0.1, could not
-        survive it.
+        1. PICKING UP WAS PUNISHED (fixed 2026-08-31). Phi was plain distance to the
+           current objective, which switched target the moment `is_carrying` flipped, so
+           it jumped downward at the one transition the task is built around. On a
+           perfect greedy episode all four pickups scored negative total reward (-0.469,
+           -0.107, -0.399, -0.698). The 0.5 handoff term is the fix: not carrying is half
+           a carton of work away from carrying.
 
-        The 0.5 term is the fix - not carrying is half a carton of work away from
-        carrying - so a pickup RAISES Phi by `0.5 - d_depot/(2*span)`, non-negative
-        because a distance cannot exceed the span. n_undelivered does the same for the
-        delivery transition. Both are asserted in scripts/verify_rewards.py.
+        2. IDLE ROBOTS HAD NO GRADIENT (fixed 2026-09-03). The target search skipped any
+           carton not in `resource_ids`, which excludes cartons being carried - so a
+           robot with nothing left to claim got d = 0.0, a constant Phi, and no reward
+           for moving at all. Since only movement can collide and an invalid PICKUP
+           cannot, the cheapest action for such a robot is to grab at thin air. Measured
+           on nocomm2_final at 4 cartons: 1,480 PICKUP presses with nothing in reach out
+           of 6,000 robot-steps, 25% of the entire episode, with movement at 21%.
 
-        It also fixes a quieter failure: the old Phi returned 0.0 for any non-carrying
-        robot once every carton was claimed, which at 4 cartons and 4 robots is true from
-        step 6 onward, so the gradient vanished for most of the episode.
+        3. THE DISTANCE WAS EUCLIDEAN, IN A WAREHOUSE FULL OF SHELVES (fixed
+           2026-09-03). Straight-line distance ignores the shelf rows the robot has to
+           drive around, so **10.2% of free cells were local minima** - measured over
+           seeds 1000-1009 - where every legal move increased the distance to the nearest
+           carton and the shaping therefore punished every one of them. A robot in the
+           wrong aisle was paid to stand still. The distance is now geodesic: BFS over
+           the cells a robot can actually enter, which has no local minima by
+           construction.
+
+        WHY THE DISTANCE TERM IS BOUNDED BY 0.5
+
+        It makes both task transitions provably non-negative, which the old form did not:
+
+            pickup   dPhi = 0.5 + 0.5*(dist_carton - dist_depot) >= 0
+            delivery dPhi = 0.5 - 0.5*dist_next                  >= 0
+
+        because each bounded term is in [0, 0.5]. Under the old `d / (2 * span)` a pickup
+        in the far corner scored dPhi = 0.5 - 18.4/26 = -0.21, i.e. negative, and only
+        avoided being caught because no test happened to pick that corner.
+
+        GEODESIC_MAX_CELLS is 2 x grid_size = 26. The longest real path measured across
+        seeds 1000-1009 is 24 cells, so the term saturates only on routes that do not
+        occur; beyond it the gradient is flat, which is the correct behaviour for a
+        target that is unreachable.
         """
         x, y, _ = self._canonical_pose(agent_idx)
         n_left = sum(1 for slot in range(self.active_cartons) if not self.delivered[slot])
+        dist = self._geodesic_from(self._world_to_grid(x, y))
+
+        def cells_to(world_xy):
+            """Geodesic cells to a world position; saturated when unreachable."""
+            target = self._world_to_grid(world_xy[0], world_xy[1])
+            d = dist.get(target)
+            if d is not None:
+                return d
+            # A carton shoved inside a shelf is not enterable, so BFS never reaches its
+            # cell. The nearest enterable neighbour is what a robot would actually stand
+            # on to pick it up, and the env's 1.5-cell reach makes that a real pickup.
+            r, c = target
+            neighbours = [dist.get(n) for n in
+                          ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))]
+            reachable = [n for n in neighbours if n is not None]
+            return min(reachable) if reachable else GEODESIC_MAX_CELLS
 
         if self.is_carrying[agent_idx]:
             dep, _ = pb.getBasePositionAndOrientation(
                 self.depot_id, physicsClientId=self.client_id
             )
-            d = math.hypot(x - dep[0], y - dep[1])
+            d_cells = cells_to(dep)
             handoff = 0.0
         else:
-            best = None
+            # Prefer a carton nobody is holding; fall back to any undelivered one so a
+            # robot with nothing to claim still has somewhere to be. See defect 2.
+            free_best = held_best = None
             for slot, rid in enumerate(self.all_resource_ids):
-                if self.delivered[slot] or rid not in self.resource_ids:
+                if slot >= self.active_cartons or self.delivered[slot]:
                     continue
                 p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
-                dd = math.hypot(x - p[0], y - p[1])
-                if best is None or dd < best:
-                    best = dd
-            d = 0.0 if best is None else best
+                d = cells_to(p)
+                if rid in self.resource_ids:
+                    free_best = d if free_best is None else min(free_best, d)
+                else:
+                    held_best = d if held_best is None else min(held_best, d)
+            best = free_best if free_best is not None else held_best
+            d_cells = 0.0 if best is None else best
             handoff = 0.5
 
-        return -(n_left + handoff + d / (2.0 * self._arena_span))
+        dist_term = 0.5 * min(1.0, d_cells / GEODESIC_MAX_CELLS)
+        return -(n_left + handoff + dist_term)
 
     def _shaping_reward(self):
         """

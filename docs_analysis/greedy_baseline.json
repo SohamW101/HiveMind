@@ -26,8 +26,8 @@
       "avg_distance": 40.5,
       "avg_collisions": 2.83,
       "avg_steps": 23.0,
-      "avg_reward_total": 1096.37,
-      "std_reward_total": 12.51,
+      "avg_reward_total": 1581.58,
+      "std_reward_total": 13.66,
       "action_distribution": {
         "fwd": 842,
         "back": 360,
@@ -52,12 +52,12 @@
           "cartons": 4,
           "distance": 40.2,
           "collisions": 2,
-          "reward_total": 1119.95,
+          "reward_total": 1609.72,
           "reward_per_agent": [
-            280.25,
-            280.24,
-            279.73,
-            279.73
+            404.16,
+            401.85,
+            403.01,
+            400.7
           ]
         },
         {
@@ -70,12 +70,12 @@
           "cartons": 4,
           "distance": 42.34,
           "collisions": 3,
-          "reward_total": 1085.73,
+          "reward_total": 1569.59,
           "reward_per_agent": [
-            271.15,
-            271.82,
-            270.67,
-            272.09
+            391.83,
+            394.13,
+            390.67,
+            392.97
           ]
         },
         {
@@ -88,12 +88,12 @@
           "cartons": 4,
           "distance": 34.54,
           "collisions": 3,
-          "reward_total": 1089.37,
+          "reward_total": 1574.2,
           "reward_per_agent": [
-            272.1,
-            272.98,
-            271.14,
-            273.16
+            392.98,
+            395.28,
+            391.81,
+            394.12
           ]
         },
         {
@@ -106,12 +106,12 @@
           "cartons": 4,
           "distance": 44.32,
           "collisions": 3,
-          "reward_total": 1096.43,
+          "reward_total": 1583.89,
           "reward_per_agent": [
-            274.37,
-            274.36,
-            273.85,
-            273.85
+            397.13,
+            395.97,
+            395.97,
+            394.81
           ]
         },
         {
@@ -124,12 +124,12 @@
           "cartons": 4,
           "distance": 42.34,
           "collisions": 3,
-          "reward_total": 1085.73,
+          "reward_total": 1569.59,
           "reward_per_agent": [
-            271.15,
-            271.82,
-            270.67,
-            272.09
+            391.83,
+            394.13,
+            390.67,
+            392.97
           ]
         },
         {
@@ -142,12 +142,12 @@
           "cartons": 4,
           "distance": 58.48,
           "collisions": 2,
-          "reward_total": 1121.48,
+          "reward_total": 1609.28,
           "reward_per_agent": [
-            280.4,
-            280.97,
-            279.43,
-            280.68
+            402.9,
+            402.9,
+            401.74,
+            401.74
           ]
         },
         {
@@ -160,12 +160,12 @@
           "cartons": 4,
           "distance": 40.35,
           "collisions": 3,
-          "reward_total": 1082.97,
+          "reward_total": 1566.83,
           "reward_per_agent": [
-            270.46,
-            271.13,
-            269.98,
-            271.4
+            391.14,
+            393.44,
+            389.98,
+            392.28
           ]
         },
         {
@@ -178,12 +178,12 @@
           "cartons": 4,
           "distance": 42.55,
           "collisions": 3,
-          "reward_total": 1082.96,
+          "reward_total": 1566.83,
           "reward_per_agent": [
-            270.46,
-            271.13,
-            269.97,
-            271.4
+            391.14,
+            393.44,
+            389.97,
+            392.28
           ]
         },
         {
@@ -196,12 +196,12 @@
           "cartons": 4,
           "distance": 40.34,
           "collisions": 3,
-          "reward_total": 1094.85,
+          "reward_total": 1579.27,
           "reward_per_agent": [
-            273.86,
-            274.36,
-            272.78,
-            273.85
+            394.82,
+            395.97,
+            393.66,
+            394.81
           ]
         },
         {
@@ -214,12 +214,12 @@
           "cartons": 4,
           "distance": 28.42,
           "collisions": 3,
-          "reward_total": 1082.97,
+          "reward_total": 1566.83,
           "reward_per_agent": [
-            270.46,
-            271.13,
-            269.98,
-            271.4
+            391.14,
+            393.44,
+            389.98,
+            392.28
           ]
         },
         {
@@ -232,12 +232,12 @@
           "cartons": 4,
           "distance": 32.49,
           "collisions": 2,
-          "reward_total": 1121.33,
+          "reward_total": 1606.48,
           "reward_per_agent": [
-            280.59,
-            280.59,
-            280.07,
-            280.07
+            402.2,
+            402.2,
+            401.04,
+            401.04
           ]
         },
         {
@@ -250,12 +250,12 @@
           "cartons": 4,
           "distance": 30.33,
           "collisions": 3,
-          "reward_total": 1098.4,
+          "reward_total": 1582.49,
           "reward_per_agent": [
-            275.24,
-            274.85,
-            274.16,
-            274.16
+            396.2,
+            396.2,
+            395.04,
+            395.04
           ]
         },
         {
@@ -268,12 +268,12 @@
           "cartons": 4,
           "distance": 38.4,
           "collisions": 3,
-          "reward_total": 1092.13,
+          "reward_total": 1576.96,
           "reward_per_agent": [
-            272.79,
-            273.67,
-            271.83,
-            273.84
+            393.67,
+            395.97,
+            392.51,
+            394.81
           ]
         },
         {
@@ -286,12 +286,12 @@
           "cartons": 4,
           "distance": 58.5,
           "collisions": 2,
-          "reward_total": 1121.48,
+          "reward_total": 1609.28,
           "reward_per_agent": [
-            280.4,
-            280.97,
-            279.43,
-            280.68
+            402.9,
+            402.9,
+            401.74,
+            401.74
           ]
         },
         {
@@ -304,12 +304,12 @@
           "cartons": 4,
           "distance": 20.43,
           "collisions": 3,
-          "reward_total": 1091.24,
+          "reward_total": 1575.11,
           "reward_per_agent": [
-            272.53,
-            273.2,
-            272.04,
-            273.47
+            393.21,
+            395.51,
+            392.04,
+            394.35
           ]
         },
         {
@@ -322,12 +322,12 @@
           "cartons": 4,
           "distance": 44.35,
           "collisions": 3,
-          "reward_total": 1089.37,
+          "reward_total": 1574.2,
           "reward_per_agent": [
-            272.1,
-            272.98,
-            271.14,
-            273.15
+            392.98,
+            395.28,
+            391.82,
+            394.12
           ]
         },
         {
@@ -340,12 +340,12 @@
           "cartons": 4,
           "distance": 54.49,
           "collisions": 2,
-          "reward_total": 1121.48,
+          "reward_total": 1606.97,
           "reward_per_agent": [
-            280.4,
-            280.97,
-            279.43,
-            280.68
+            401.75,
+            402.9,
+            400.59,
+            401.74
           ]
         },
         {
@@ -358,12 +358,12 @@
           "cartons": 4,
           "distance": 48.33,
           "collisions": 3,
-          "reward_total": 1093.67,
+          "reward_total": 1583.44,
           "reward_per_agent": [
-            273.68,
-            273.67,
-            273.16,
-            273.16
+            397.59,
+            395.28,
+            396.44,
+            394.12
           ]
         },
         {
@@ -376,12 +376,12 @@
           "cartons": 4,
           "distance": 58.66,
           "collisions": 3,
-          "reward_total": 1104.43,
+          "reward_total": 1589.9,
           "reward_per_agent": [
-            275.85,
-            276.9,
-            274.7,
-            276.98
+            396.9,
+            399.21,
+            395.74,
+            398.05
           ]
         },
         {
@@ -394,12 +394,12 @@
           "cartons": 4,
           "distance": 20.43,
           "collisions": 3,
-          "reward_total": 1094.01,
+          "reward_total": 1577.87,
           "reward_per_agent": [
-            273.22,
-            273.89,
-            272.74,
-            274.16
+            393.9,
+            396.2,
+            392.74,
+            395.04
           ]
         },
         {
@@ -412,12 +412,12 @@
           "cartons": 4,
           "distance": 42.54,
           "collisions": 3,
-          "reward_total": 1082.96,
+          "reward_total": 1566.82,
           "reward_per_agent": [
-            270.46,
-            271.13,
-            269.97,
-            271.4
+            391.14,
+            393.44,
+            389.97,
+            392.28
           ]
         },
         {
@@ -430,12 +430,12 @@
           "cartons": 4,
           "distance": 34.65,
           "collisions": 3,
-          "reward_total": 1099.17,
+          "reward_total": 1584.34,
           "reward_per_agent": [
-            274.55,
-            275.51,
-            273.47,
-            275.65
+            395.51,
+            397.82,
+            394.35,
+            396.66
           ]
         },
         {
@@ -448,12 +448,12 @@
           "cartons": 4,
           "distance": 30.42,
           "collisions": 3,
-          "reward_total": 1092.88,
+          "reward_total": 1576.97,
           "reward_per_agent": [
-            273.86,
-            273.47,
-            272.78,
-            272.78
+            394.82,
+            394.82,
+            393.66,
+            393.66
           ]
         },
         {
@@ -466,12 +466,12 @@
           "cartons": 4,
           "distance": 54.62,
           "collisions": 3,
-          "reward_total": 1098.05,
+          "reward_total": 1585.29,
           "reward_per_agent": [
-            274.6,
-            275.04,
-            273.71,
-            274.7
+            396.9,
+            396.9,
+            395.74,
+            395.74
           ]
         },
         {
@@ -484,12 +484,12 @@
           "cartons": 4,
           "distance": 34.45,
           "collisions": 3,
-          "reward_total": 1085.73,
+          "reward_total": 1569.59,
           "reward_per_agent": [
-            271.15,
-            271.82,
-            270.67,
-            272.09
+            391.83,
+            394.13,
+            390.67,
+            392.97
           ]
         },
         {
@@ -502,12 +502,12 @@
           "cartons": 4,
           "distance": 18.34,
           "collisions": 3,
-          "reward_total": 1099.53,
+          "reward_total": 1583.39,
           "reward_per_agent": [
-            274.6,
-            275.27,
-            274.12,
-            275.54
+            395.28,
+            397.58,
+            394.12,
+            396.42
           ]
         },
         {
@@ -520,12 +520,12 @@
           "cartons": 4,
           "distance": 34.44,
           "collisions": 3,
-          "reward_total": 1085.73,
+          "reward_total": 1569.59,
           "reward_per_agent": [
-            271.15,
-            271.82,
-            270.67,
-            272.08
+            391.83,
+            394.13,
+            390.67,
+            392.97
           ]
         },
         {
@@ -538,12 +538,12 @@
           "cartons": 4,
           "distance": 38.57,
           "collisions": 3,
-          "reward_total": 1082.96,
+          "reward_total": 1566.82,
           "reward_per_agent": [
-            270.46,
-            271.13,
-            269.97,
-            271.4
+            391.14,
+            393.44,
+            389.97,
+            392.28
           ]
         },
         {
@@ -556,12 +556,12 @@
           "cartons": 4,
           "distance": 62.36,
           "collisions": 3,
-          "reward_total": 1094.35,
+          "reward_total": 1579.77,
           "reward_per_agent": [
-            273.33,
-            274.37,
-            272.2,
-            274.45
+            394.37,
+            396.67,
+            393.21,
+            395.51
           ]
         },
         {
@@ -574,12 +574,12 @@
           "cartons": 4,
           "distance": 44.58,
           "collisions": 3,
-          "reward_total": 1099.78,
+          "reward_total": 1586.19,
           "reward_per_agent": [
-            275.1,
-            275.36,
-            274.36,
-            274.96
+            397.13,
+            397.13,
+            395.97,
+            395.97
           ]
         }
       ]
@@ -601,8 +601,8 @@
       "avg_distance": 122.4,
       "avg_collisions": 4.5,
       "avg_steps": 58.3,
-      "avg_reward_total": 1670.25,
-      "std_reward_total": 38.6,
+      "avg_reward_total": 2635.65,
+      "std_reward_total": 39.0,
       "action_distribution": {
         "fwd": 2783,
         "back": 871,
@@ -627,12 +627,12 @@
           "cartons": 8,
           "distance": 128.68,
           "collisions": 4,
-          "reward_total": 1677.42,
+          "reward_total": 2641.28,
           "reward_per_agent": [
-            419.07,
-            419.74,
-            418.6,
-            420.01
+            659.75,
+            662.05,
+            658.6,
+            660.89
           ]
         },
         {
@@ -645,12 +645,12 @@
           "cartons": 8,
           "distance": 94.63,
           "collisions": 6,
-          "reward_total": 1652.22,
+          "reward_total": 2616.08,
           "reward_per_agent": [
-            412.77,
-            413.44,
-            412.29,
-            413.71
+            653.45,
+            655.75,
+            652.29,
+            654.59
           ]
         },
         {
@@ -663,12 +663,12 @@
           "cartons": 8,
           "distance": 124.9,
           "collisions": 3,
-          "reward_total": 1690.89,
+          "reward_total": 2654.76,
           "reward_per_agent": [
-            422.45,
-            423.12,
-            421.95,
-            423.38
+            663.12,
+            665.43,
+            661.95,
+            664.26
           ]
         },
         {
@@ -681,12 +681,12 @@
           "cartons": 8,
           "distance": 138.73,
           "collisions": 13,
-          "reward_total": 1510.92,
+          "reward_total": 2475.76,
           "reward_per_agent": [
-            377.49,
-            378.36,
-            376.53,
-            378.54
+            618.37,
+            620.67,
+            617.21,
+            619.51
           ]
         },
         {
@@ -699,12 +699,12 @@
           "cartons": 8,
           "distance": 100.4,
           "collisions": 5,
-          "reward_total": 1666.61,
+          "reward_total": 2630.47,
           "reward_per_agent": [
-            416.38,
-            417.03,
-            415.88,
-            417.31
+            657.06,
+            659.34,
+            655.88,
+            658.19
           ]
         },
         {
@@ -717,12 +717,12 @@
           "cartons": 8,
           "distance": 116.45,
           "collisions": 7,
-          "reward_total": 1620.7,
+          "reward_total": 2584.56,
           "reward_per_agent": [
-            404.89,
-            405.57,
-            404.4,
-            405.84
+            645.56,
+            647.88,
+            644.4,
+            646.72
           ]
         },
         {
@@ -735,12 +735,12 @@
           "cartons": 8,
           "distance": 94.83,
           "collisions": 5,
-          "reward_total": 1661.19,
+          "reward_total": 2625.06,
           "reward_per_agent": [
-            415.03,
-            415.7,
-            414.53,
-            415.94
+            655.71,
+            658.0,
+            654.53,
+            656.82
           ]
         },
         {
@@ -753,12 +753,12 @@
           "cartons": 8,
           "distance": 110.75,
           "collisions": 4,
-          "reward_total": 1680.83,
+          "reward_total": 2645.98,
           "reward_per_agent": [
-            420.48,
-            420.47,
-            419.94,
-            419.94
+            662.09,
+            662.08,
+            660.91,
+            660.91
           ]
         },
         {
@@ -771,12 +771,12 @@
           "cartons": 8,
           "distance": 132.41,
           "collisions": 3,
-          "reward_total": 1687.12,
+          "reward_total": 2651.2,
           "reward_per_agent": [
-            422.72,
-            422.05,
-            421.0,
-            421.35
+            663.69,
+            663.4,
+            661.88,
+            662.23
           ]
         },
         {
@@ -789,12 +789,12 @@
           "cartons": 8,
           "distance": 110.49,
           "collisions": 2,
-          "reward_total": 1722.3,
+          "reward_total": 2689.3,
           "reward_per_agent": [
-            430.89,
-            431.14,
-            430.13,
-            430.13
+            672.92,
+            672.91,
+            671.74,
+            671.74
           ]
         },
         {
@@ -807,12 +807,12 @@
           "cartons": 8,
           "distance": 120.68,
           "collisions": 4,
-          "reward_total": 1674.75,
+          "reward_total": 2639.18,
           "reward_per_agent": [
-            418.84,
-            419.34,
-            417.76,
-            418.81
+            659.81,
+            660.95,
+            658.65,
+            659.78
           ]
         },
         {
@@ -825,12 +825,12 @@
           "cartons": 8,
           "distance": 102.46,
           "collisions": 4,
-          "reward_total": 1682.63,
+          "reward_total": 2647.79,
           "reward_per_agent": [
-            420.92,
-            420.92,
-            420.39,
-            420.39
+            662.53,
+            662.53,
+            661.36,
+            661.36
           ]
         },
         {
@@ -843,12 +843,12 @@
           "cartons": 8,
           "distance": 106.39,
           "collisions": 7,
-          "reward_total": 1632.45,
+          "reward_total": 2597.29,
           "reward_per_agent": [
-            407.87,
-            408.75,
-            406.92,
-            408.92
+            648.75,
+            651.06,
+            647.59,
+            649.89
           ]
         },
         {
@@ -861,12 +861,12 @@
           "cartons": 8,
           "distance": 164.89,
           "collisions": 5,
-          "reward_total": 1648.46,
+          "reward_total": 2618.58,
           "reward_per_agent": [
-            412.53,
-            412.14,
-            412.34,
-            411.45
+            655.81,
+            653.49,
+            656.95,
+            652.33
           ]
         },
         {
@@ -879,12 +879,12 @@
           "cartons": 8,
           "distance": 120.55,
           "collisions": 3,
-          "reward_total": 1703.33,
+          "reward_total": 2670.79,
           "reward_per_agent": [
-            426.1,
-            426.09,
-            425.57,
-            425.56
+            668.86,
+            667.7,
+            667.7,
+            666.53
           ]
         },
         {
@@ -897,12 +897,12 @@
           "cartons": 8,
           "distance": 110.57,
           "collisions": 3,
-          "reward_total": 1694.17,
+          "reward_total": 2657.96,
           "reward_per_agent": [
-            423.9,
-            424.3,
-            422.66,
-            423.31
+            664.79,
+            665.65,
+            663.34,
+            664.19
           ]
         },
         {
@@ -915,12 +915,12 @@
           "cartons": 8,
           "distance": 120.52,
           "collisions": 3,
-          "reward_total": 1707.22,
+          "reward_total": 2673.61,
           "reward_per_agent": [
-            427.38,
-            427.26,
-            426.23,
-            426.36
+            668.42,
+            669.56,
+            667.24,
+            668.39
           ]
         },
         {
@@ -933,12 +933,12 @@
           "cartons": 8,
           "distance": 138.42,
           "collisions": 2,
-          "reward_total": 1722.18,
+          "reward_total": 2687.5,
           "reward_per_agent": [
-            430.3,
-            431.31,
-            429.18,
-            431.4
+            671.31,
+            673.61,
+            670.14,
+            672.44
           ]
         },
         {
@@ -951,12 +951,12 @@
           "cartons": 8,
           "distance": 118.38,
           "collisions": 5,
-          "reward_total": 1652.19,
+          "reward_total": 2616.05,
           "reward_per_agent": [
-            412.77,
-            413.44,
-            412.28,
-            413.69
+            653.45,
+            655.75,
+            652.28,
+            654.58
           ]
         },
         {
@@ -969,12 +969,12 @@
           "cartons": 8,
           "distance": 128.47,
           "collisions": 4,
-          "reward_total": 1678.11,
+          "reward_total": 2643.28,
           "reward_per_agent": [
-            419.28,
-            420.25,
-            418.2,
-            420.37
+            660.25,
+            662.56,
+            659.08,
+            661.39
           ]
         },
         {
@@ -987,12 +987,12 @@
           "cartons": 8,
           "distance": 134.58,
           "collisions": 3,
-          "reward_total": 1698.81,
+          "reward_total": 2663.98,
           "reward_per_agent": [
-            424.46,
-            425.42,
-            423.38,
-            425.55
+            665.43,
+            667.73,
+            664.26,
+            666.56
           ]
         },
         {
@@ -1005,12 +1005,12 @@
           "cartons": 8,
           "distance": 128.94,
           "collisions": 4,
-          "reward_total": 1681.74,
+          "reward_total": 2652.66,
           "reward_per_agent": [
-            420.69,
-            420.7,
-            420.17,
-            420.17
+            664.61,
+            662.31,
+            664.6,
+            661.14
           ]
         },
         {
@@ -1023,12 +1023,12 @@
           "cartons": 8,
           "distance": 134.47,
           "collisions": 4,
-          "reward_total": 1684.74,
+          "reward_total": 2650.09,
           "reward_per_agent": [
-            421.52,
-            421.91,
-            420.41,
-            420.9
+            662.53,
+            663.68,
+            661.37,
+            662.51
           ]
         },
         {
@@ -1041,12 +1041,12 @@
           "cartons": 8,
           "distance": 146.51,
           "collisions": 4,
-          "reward_total": 1687.43,
+          "reward_total": 2654.83,
           "reward_per_agent": [
-            422.37,
-            422.16,
-            421.5,
-            421.4
+            663.71,
+            664.86,
+            662.54,
+            663.71
           ]
         },
         {
@@ -1059,12 +1059,12 @@
           "cartons": 8,
           "distance": 142.85,
           "collisions": 4,
-          "reward_total": 1659.43,
+          "reward_total": 2624.26,
           "reward_per_agent": [
-            414.61,
-            415.5,
-            413.65,
-            415.66
+            655.5,
+            657.81,
+            654.33,
+            656.63
           ]
         },
         {
@@ -1077,12 +1077,12 @@
           "cartons": 8,
           "distance": 110.65,
           "collisions": 7,
-          "reward_total": 1632.46,
+          "reward_total": 2597.29,
           "reward_per_agent": [
-            407.87,
-            408.75,
-            406.92,
-            408.92
+            648.75,
+            651.06,
+            647.59,
+            649.89
           ]
         },
         {
@@ -1095,12 +1095,12 @@
           "cartons": 8,
           "distance": 132.78,
           "collisions": 5,
-          "reward_total": 1650.44,
+          "reward_total": 2615.27,
           "reward_per_agent": [
-            412.37,
-            413.25,
-            411.41,
-            413.42
+            653.25,
+            655.56,
+            652.08,
+            654.38
           ]
         },
         {
@@ -1113,12 +1113,12 @@
           "cartons": 8,
           "distance": 122.62,
           "collisions": 5,
-          "reward_total": 1660.86,
+          "reward_total": 2624.65,
           "reward_per_agent": [
-            415.29,
-            415.96,
-            414.34,
-            415.27
+            656.17,
+            657.31,
+            655.01,
+            656.15
           ]
         },
         {
@@ -1131,12 +1131,12 @@
           "cartons": 8,
           "distance": 110.57,
           "collisions": 4,
-          "reward_total": 1684.49,
+          "reward_total": 2653.8,
           "reward_per_agent": [
-            421.44,
-            421.69,
-            420.68,
-            420.68
+            664.62,
+            663.46,
+            663.44,
+            662.29
           ]
         },
         {
@@ -1149,12 +1149,12 @@
           "cartons": 8,
           "distance": 124.64,
           "collisions": 3,
-          "reward_total": 1701.54,
+          "reward_total": 2666.29,
           "reward_per_agent": [
-            425.57,
-            425.97,
-            424.45,
-            425.55
+            666.58,
+            667.73,
+            665.41,
+            666.56
           ]
         }
       ]
@@ -1176,8 +1176,8 @@
       "avg_distance": 232.6,
       "avg_collisions": 6.7,
       "avg_steps": 97.4,
-      "avg_reward_total": 2247.28,
-      "std_reward_total": 44.42,
+      "avg_reward_total": 3692.76,
+      "std_reward_total": 44.18,
       "action_distribution": {
         "fwd": 5321,
         "back": 1629,
@@ -1202,12 +1202,12 @@
           "cartons": 12,
           "distance": 221.0,
           "collisions": 4,
-          "reward_total": 2296.38,
+          "reward_total": 3740.81,
           "reward_per_agent": [
-            574.25,
-            574.75,
-            573.15,
-            574.23
+            935.22,
+            936.36,
+            934.03,
+            935.19
           ]
         },
         {
@@ -1220,12 +1220,12 @@
           "cartons": 12,
           "distance": 264.94,
           "collisions": 6,
-          "reward_total": 2246.22,
+          "reward_total": 3693.68,
           "reward_per_agent": [
-            561.83,
-            561.82,
-            561.31,
-            561.27
+            924.59,
+            923.43,
+            923.43,
+            922.24
           ]
         },
         {
@@ -1238,12 +1238,12 @@
           "cartons": 12,
           "distance": 239.55,
           "collisions": 8,
-          "reward_total": 2227.1,
+          "reward_total": 3672.61,
           "reward_per_agent": [
-            557.2,
-            556.8,
-            557.0,
-            556.1
+            919.32,
+            918.15,
+            918.15,
+            916.98
           ]
         },
         {
@@ -1256,12 +1256,12 @@
           "cartons": 12,
           "distance": 222.67,
           "collisions": 5,
-          "reward_total": 2289.63,
+          "reward_total": 3736.87,
           "reward_per_agent": [
-            572.5,
-            572.94,
-            571.61,
-            572.59
+            934.8,
+            934.8,
+            933.64,
+            933.63
           ]
         },
         {
@@ -1274,12 +1274,12 @@
           "cartons": 12,
           "distance": 214.9,
           "collisions": 6,
-          "reward_total": 2268.59,
+          "reward_total": 3714.9,
           "reward_per_agent": [
-            567.15,
-            568.16,
-            566.02,
-            567.26
+            928.16,
+            930.47,
+            926.99,
+            929.29
           ]
         },
         {
@@ -1292,12 +1292,12 @@
           "cartons": 12,
           "distance": 222.54,
           "collisions": 14,
-          "reward_total": 2115.74,
+          "reward_total": 3559.6,
           "reward_per_agent": [
-            528.65,
-            529.32,
-            528.17,
-            529.6
+            889.33,
+            891.63,
+            888.17,
+            890.48
           ]
         },
         {
@@ -1310,12 +1310,12 @@
           "cartons": 12,
           "distance": 244.55,
           "collisions": 5,
-          "reward_total": 2279.47,
+          "reward_total": 3724.3,
           "reward_per_agent": [
-            569.63,
-            570.51,
-            568.65,
-            570.68
+            930.51,
+            932.81,
+            929.33,
+            931.65
           ]
         },
         {
@@ -1328,12 +1328,12 @@
           "cartons": 12,
           "distance": 232.68,
           "collisions": 7,
-          "reward_total": 2247.17,
+          "reward_total": 3692.5,
           "reward_per_agent": [
-            561.55,
-            562.55,
-            560.43,
-            562.64
+            922.56,
+            924.86,
+            921.4,
+            923.68
           ]
         },
         {
@@ -1346,12 +1346,12 @@
           "cartons": 12,
           "distance": 197.18,
           "collisions": 7,
-          "reward_total": 2245.09,
+          "reward_total": 3690.6,
           "reward_per_agent": [
-            561.7,
-            561.31,
-            561.5,
-            560.59
+            923.82,
+            922.66,
+            922.65,
+            921.47
           ]
         },
         {
@@ -1364,12 +1364,12 @@
           "cartons": 12,
           "distance": 252.91,
           "collisions": 7,
-          "reward_total": 2248.42,
+          "reward_total": 3694.81,
           "reward_per_agent": [
-            562.97,
-            562.55,
-            561.52,
-            561.37
+            924.01,
+            924.86,
+            922.53,
+            923.4
           ]
         },
         {
@@ -1382,12 +1382,12 @@
           "cartons": 12,
           "distance": 254.93,
           "collisions": 8,
-          "reward_total": 2221.26,
+          "reward_total": 3667.97,
           "reward_per_agent": [
-            555.97,
-            555.24,
-            555.83,
-            554.22
+            918.17,
+            917.0,
+            916.98,
+            915.83
           ]
         },
         {
@@ -1400,12 +1400,12 @@
           "cartons": 12,
           "distance": 196.85,
           "collisions": 12,
-          "reward_total": 2166.79,
+          "reward_total": 3612.14,
           "reward_per_agent": [
-            542.04,
-            542.43,
-            540.91,
-            541.41
+            903.05,
+            904.19,
+            901.88,
+            903.02
           ]
         },
         {
@@ -1418,12 +1418,12 @@
           "cartons": 12,
           "distance": 220.93,
           "collisions": 6,
-          "reward_total": 2263.35,
+          "reward_total": 3708.18,
           "reward_per_agent": [
-            565.59,
-            566.48,
-            564.64,
-            566.64
+            926.47,
+            928.79,
+            925.31,
+            927.61
           ]
         },
         {
@@ -1436,12 +1436,12 @@
           "cartons": 12,
           "distance": 215.42,
           "collisions": 9,
-          "reward_total": 2210.35,
+          "reward_total": 3659.32,
           "reward_per_agent": [
-            553.0,
-            552.62,
-            552.82,
-            551.91
+            916.28,
+            913.97,
+            916.28,
+            912.79
           ]
         },
         {
@@ -1454,12 +1454,12 @@
           "cartons": 12,
           "distance": 218.94,
           "collisions": 5,
-          "reward_total": 2280.1,
+          "reward_total": 3724.93,
           "reward_per_agent": [
-            569.78,
-            570.65,
-            568.84,
-            570.83
+            930.66,
+            932.96,
+            929.51,
+            931.8
           ]
         },
         {
@@ -1472,12 +1472,12 @@
           "cartons": 12,
           "distance": 252.79,
           "collisions": 7,
-          "reward_total": 2232.26,
+          "reward_total": 3676.12,
           "reward_per_agent": [
-            558.07,
-            558.46,
-            557.3,
-            558.42
+            918.75,
+            920.77,
+            917.3,
+            919.31
           ]
         },
         {
@@ -1490,12 +1490,12 @@
           "cartons": 12,
           "distance": 231.39,
           "collisions": 7,
-          "reward_total": 2241.3,
+          "reward_total": 3689.12,
           "reward_per_agent": [
-            560.74,
-            560.36,
-            560.54,
-            559.66
+            924.01,
+            921.71,
+            922.85,
+            920.54
           ]
         },
         {
@@ -1508,12 +1508,12 @@
           "cartons": 12,
           "distance": 214.53,
           "collisions": 9,
-          "reward_total": 2201.92,
+          "reward_total": 3645.79,
           "reward_per_agent": [
-            550.49,
-            550.88,
-            549.72,
-            550.83
+            911.16,
+            913.19,
+            909.72,
+            911.71
           ]
         },
         {
@@ -1526,12 +1526,12 @@
           "cartons": 12,
           "distance": 191.18,
           "collisions": 7,
-          "reward_total": 2242.85,
+          "reward_total": 3687.68,
           "reward_per_agent": [
-            560.48,
-            561.35,
-            559.5,
-            561.53
+            921.36,
+            923.66,
+            920.17,
+            922.5
           ]
         },
         {
@@ -1544,12 +1544,12 @@
           "cartons": 12,
           "distance": 215.18,
           "collisions": 11,
-          "reward_total": 2181.62,
+          "reward_total": 3626.38,
           "reward_per_agent": [
-            545.59,
-            545.99,
-            544.47,
-            545.58
+            906.6,
+            907.75,
+            905.43,
+            906.59
           ]
         },
         {
@@ -1562,12 +1562,12 @@
           "cartons": 12,
           "distance": 230.93,
           "collisions": 3,
-          "reward_total": 2313.44,
+          "reward_total": 3758.6,
           "reward_per_agent": [
-            578.62,
-            578.92,
-            578.09,
-            577.81
+            940.23,
+            940.53,
+            939.06,
+            938.77
           ]
         },
         {
@@ -1580,12 +1580,12 @@
           "cartons": 12,
           "distance": 208.81,
           "collisions": 3,
-          "reward_total": 2310.55,
+          "reward_total": 3754.42,
           "reward_per_agent": [
-            577.37,
-            578.03,
-            576.86,
-            578.3
+            938.04,
+            940.34,
+            936.86,
+            939.18
           ]
         },
         {
@@ -1598,12 +1598,12 @@
           "cartons": 12,
           "distance": 219.0,
           "collisions": 6,
-          "reward_total": 2262.7,
+          "reward_total": 3707.53,
           "reward_per_agent": [
-            565.43,
-            566.31,
-            564.47,
-            566.49
+            926.31,
+            928.62,
+            925.14,
+            927.45
           ]
         },
         {
@@ -1616,12 +1616,12 @@
           "cartons": 12,
           "distance": 273.29,
           "collisions": 10,
-          "reward_total": 2181.03,
+          "reward_total": 3631.16,
           "reward_per_agent": [
-            545.68,
-            545.29,
-            545.48,
-            544.59
+            908.95,
+            906.64,
+            910.09,
+            905.47
           ]
         },
         {
@@ -1634,12 +1634,12 @@
           "cartons": 12,
           "distance": 273.24,
           "collisions": 4,
-          "reward_total": 2278.73,
+          "reward_total": 3723.16,
           "reward_per_agent": [
-            569.83,
-            570.64,
-            568.74,
-            569.53
+            930.8,
+            932.25,
+            929.62,
+            930.5
           ]
         },
         {
@@ -1652,12 +1652,12 @@
           "cartons": 12,
           "distance": 266.82,
           "collisions": 6,
-          "reward_total": 2238.89,
+          "reward_total": 3682.76,
           "reward_per_agent": [
-            559.44,
-            560.1,
-            558.98,
-            560.37
+            920.12,
+            922.41,
+            918.98,
+            921.25
           ]
         },
         {
@@ -1670,12 +1670,12 @@
           "cartons": 12,
           "distance": 230.92,
           "collisions": 4,
-          "reward_total": 2297.34,
+          "reward_total": 3742.51,
           "reward_per_agent": [
-            574.09,
-            575.06,
-            573.02,
-            575.17
+            935.06,
+            937.37,
+            933.9,
+            936.18
           ]
         },
         {
@@ -1688,12 +1688,12 @@
           "cartons": 12,
           "distance": 239.19,
           "collisions": 5,
-          "reward_total": 2272.0,
+          "reward_total": 3716.08,
           "reward_per_agent": [
-            568.63,
-            568.25,
-            567.57,
-            567.55
+            929.6,
+            929.6,
+            928.45,
+            928.43
           ]
         },
         {
@@ -1706,12 +1706,12 @@
           "cartons": 12,
           "distance": 269.09,
           "collisions": 5,
-          "reward_total": 2273.13,
+          "reward_total": 3717.96,
           "reward_per_agent": [
-            568.34,
-            568.9,
-            567.08,
-            568.81
+            929.23,
+            931.21,
+            927.76,
+            929.77
           ]
         },
         {
@@ -1724,12 +1724,12 @@
           "cartons": 12,
           "distance": 242.62,
           "collisions": 5,
-          "reward_total": 2285.01,
+          "reward_total": 3730.18,
           "reward_per_agent": [
-            571.3,
-            571.96,
-            569.94,
-            571.8
+            932.27,
+            934.27,
+            930.82,
+            932.82
           ]
         }
       ]

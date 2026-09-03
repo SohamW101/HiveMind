@@ -23,8 +23,6 @@ import os
 
 import numpy as np
 
-from stable_baselines3 import PPO
-
 from hivemind_env.env import (
     ACTION_NAMES,
     NUM_AGENTS,
@@ -32,14 +30,16 @@ from hivemind_env.env import (
     joint_from_slot_actions,
     policy_uses_comms,
 )
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device
-
+from hivemind_env.training import get_device, is_maskable, load_policy
 
 
 def probe(model, episodes, num_cartons, deterministic, seed0=1000, message_mode="learned"):
     # A comms checkpoint needs a comms env or its own actions are rejected. Read off
     # the policy rather than asking for a flag.
     comms = policy_uses_comms(model)
+    # A MaskablePPO checkpoint predicts unmasked - and therefore wrongly - unless the
+    # masks are handed to predict() explicitly.
+    masked = is_maskable(model)
     counts = np.zeros(7, dtype=int)
     pickups = deliveries = collisions = completed = 0
     lengths, rewards, delivered = [], [], []
@@ -53,8 +53,9 @@ def probe(model, episodes, num_cartons, deterministic, seed0=1000, message_mode=
         terminated = False
 
         for _ in range(env.max_steps):
+            kw = {"action_masks": env.action_masks()} if masked else {}
             raw, _ = model.predict(np.asarray(obs, dtype=np.float32),
-                                   deterministic=deterministic)
+                                   deterministic=deterministic, **kw)
             actions = joint_from_slot_actions(raw, NUM_AGENTS)
             moves = actions[:, 0] if actions.ndim == 2 else actions
             for a in moves:
@@ -117,8 +118,7 @@ def main():
     ap.add_argument("--episodes", type=int, default=10)
     args = ap.parse_args()
 
-    model = PPO.load(args.model, device=get_device(),
-                     custom_objects=INFERENCE_CUSTOM_OBJECTS)
+    model, _ = load_policy(args.model, device=get_device())
 
     print("=" * 78)
     print(f"  {os.path.basename(args.model)} at {args.num_cartons} cartons, "

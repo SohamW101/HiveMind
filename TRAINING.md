@@ -230,11 +230,14 @@ honest replacement is a real asymmetric critic — not more hyperparameter tunin
 --seed N            Seeds the policy and the per-world warehouse generation.
 --max-steps N       Episode cap. Defaults per carton count: 150 / 250 / 400 at 4 / 8 / 12.
 --num-cartons N     Cartons in play. Default 12. Start at 1 - see section 2.
---shaping-scale F   Strength of the potential-based shaping. Default 30.0.
+--shaping-scale F   Strength of the potential-based shaping. Default 60.0.
 --no-shaping        Train the specification's sparse reward exactly. Ablations only.
 --gamma FLOAT       Discount. Default 0.99.
 --curriculum        Promote 4 -> 8 -> 12 cartons on rolling success.
 --comms             Turn on the 16-token broadcast channel (step 7). Off by default.
+--masked            Train with MaskablePPO; invalid actions cannot be selected. A
+                    DIFFERENT ALGORITHM - keep both arms of the comms comparison on
+                    the same setting.
 --msg-dropout F     Per listener-speaker link dropout. Default 0.10. Needs --comms.
 --ent-coef F        PPO entropy bonus. Default 0.01. Read the note in section 14 before
                     changing it - with --comms it is a standing pressure toward a
@@ -347,16 +350,23 @@ If you are benchmarking anyway, that line in `hivemind_env/training.py` is worth
 tensorboard --logdir tensorboard_logs
 ```
 
-What to watch, in order of usefulness:
+What to watch, in order of usefulness. **`ep_rew_mean` is last, not first** — it rose
+steadily through all four failed runs and is how three of them were misread.
 
 | Metric | What it should do |
 |---|---|
-| `rollout/ep_rew_mean` | Rise. Flat after ~500k steps means something is wrong. |
-| `rollout/ep_len_mean` | **Fall.** This is makespan. It is the metric that matters. |
-| `rollout/success_rate` | Rise from zero. Fed by the `is_success` flag the env sets. |
+| `rollout/ep_len_mean` | **Fall, and leave the cap.** This is makespan. Pinned at exactly `max_steps` is the single clearest sign of a dead run. |
+| `rollout/success_rate` | Rise from zero. All-or-nothing over every carton, so it cannot tell "delivers none" from "delivers all but one". |
+| `rollout/delivered_fraction` | Rise. The metric `success_rate` cannot give you — read the two together (§11b). |
+| `curriculum/target_cartons` | Step 1 → 2 → 3 → 4 → 8 → 12. Never moving, or moving and then never recovering, are both failures. |
+| `curriculum/steps_at_level` | Reset on each change. Growing past ~30% of the run triggers an automatic demotion. |
+| `train/entropy_loss` | Fall from its maximum as the policy commits. Stuck at −1.94 means it has not committed to anything. |
 | `train/explained_variance` | Rise towards 1. Near zero means the critic is not learning. |
-| `train/entropy_loss` | Rise slowly (less negative) as the policy commits. A collapse to zero early means premature convergence — raise `--lr` decay or `ent_coef`. |
 | `train/approx_kl` | Stay under about 0.02. Consistently higher means the learning rate is too high. |
+| `rollout/ep_rew_mean` | Rise — but only meaningful **against the do-nothing floor** and the greedy reference. On its own it says nothing. |
+
+With `--comms`, add `comms/token_entropy_bits` and `comms/mi_carrying_bits`, and read
+them **together** — see §14.
 
 Console output reports `fps`; compare it against §6 to confirm you are getting the
 throughput your machine should give.
@@ -419,179 +429,99 @@ Some caveats worth carrying into any write-up:
 
 ---
 
-## 11. The failure mode you will hit first
+## 11. The failure modes, and how each was found
 
-The first serious run — 5,013,504 steps, 1.19 hours — **completed zero episodes** and
-converged to a mean episode reward of &minus;103. Worth understanding before you start,
-because the curves look deceptively healthy while it happens.
+Four runs have failed here in three distinct ways. Every one looked healthy on at least
+one curve while it happened, so read this before you start.
 
-**How to recognise it.** `rollout/ep_len_mean` pinned flat at exactly `max_steps`, and
-`rollout/success_rate` flat at 0. Meanwhile `ep_rew_mean` rises steeply and plateaus,
-`explained_variance` sits around 0.9, `approx_kl` stays near 0.005 and `clip_fraction`
-declines — every optimisation signal says the run is healthy. It is: PPO is correctly
-optimising a reward that is maximised by doing nothing.
+### 11a. "Learned to stand still" (runs 1-3, Aug 2026)
 
-**Do the arithmetic on the plateau.** A robot that does nothing for a full episode scores:
+`ep_len_mean` pinned at exactly `max_steps`, `success_rate` flat 0, and `ep_rew_mean`
+rising steeply while `explained_variance` sat near 0.9 — every optimisation signal saying
+the run was healthy. It was: PPO was correctly optimising a reward maximised by doing
+nothing.
 
-```
-time penalty     steps × −0.05  shared  × 0.90
-idle penalty     steps × −0.02  own     × 0.10
-```
+**The tell is arithmetic, not intuition.** Compute what a do-nothing policy scores and
+compare. If the plateau sits at or below that floor, the reward is the bug. At 400 steps
+the floor is &minus;18.8 and one run finished at &minus;7.3; at 2000 steps it was
+&minus;94 and the run converged to &minus;103 — *below* doing nothing.
 
-At 2000 steps that is &minus;94. The run converged to &minus;103, i.e. *below* the
-do-nothing floor — the remainder being collisions and invalid actions. For scale, greedy
-scores +201 per agent. **If your plateau is near the do-nothing number, the policy has
-learned to stand still, not to work.**
+Fixed by blocking moves into shelves rather than charging for them, making a pickup pay,
+lifting shaping outside the 90/10 split, and setting the scale from `EV(move)`.
 
-**Why it happens.** Two independent causes, both structural:
+### 11b. "Working but not finishing" (run 4, `nocomm2`, 20M steps, Sep 2026)
 
-1. **Collisions dominate delivery during exploration.** Under random actions the world
-   produces roughly 71 collisions per 300 steps against about one delivery. That is
-   `0.24 × −4.5 = −1.06` per step from collisions against `+0.03` from deliveries —
-   moving is about 35× worse than standing still. The policy found the correct answer to
-   the question it was being asked.
-2. **Long episodes make the terminal rewards invisible.** With `gamma = 0.99`,
-   `0.99^98 = 0.37` but `0.99^2000 = 1.9e-9`. The +100 completion bonus and the makespan
-   bonus — the two largest terms in the whole table — discount to nothing.
+The opposite signature, and the one you are most likely to hit next. **`ep_rew_mean` rose
+80 → 100 across the entire dead region** — well above the do-nothing floor — while
+`success_rate` sat at exactly 0.00 for 16.4M steps and `ep_len_mean` at exactly 150.
 
-**What was changed as a result**, all of it in the defaults:
-
-- **`max_steps` 2000 → 400.** Greedy's worst observed episode is 123, so this is 3.2×
-  headroom. Terminal rewards land inside the discount horizon, and a fixed compute budget
-  buys five times as many episodes. Costs about 25% throughput to extra resets.
-- **Potential-based reward shaping, on by default.** `F = γΦ(s′) − Φ(s)` with
-  `Φ = −distance to current objective` (the depot when carrying, the nearest carton
-  otherwise). This form is provably policy-invariant — it changes which policies are
-  *findable*, never which is optimal, and cannot be farmed by hovering because the sum
-  telescopes. `--no-shaping` restores the specification's reward exactly, for ablations.
-- **The curriculum now does something.** It used to promote a `difficulty_level` that
-  nothing in the world read. It now sets `num_cartons`, so `--curriculum` genuinely
-  starts the task at 4 cartons and promotes on rolling success.
-
-**Those changes were not enough, and the second failure is more instructive than the
-first.** `fix_test` — 409,600 steps at 4 cartons with shaping on and `max_steps=400` —
-also completed zero episodes. `ep_len_mean` was exactly 400.0 for all 39 iterations.
-Reward climbed &minus;478 → &minus;16.5, a 29× improvement that means nothing:
+The policy was working. It just never closed an episode:
 
 ```
-   stay  : reward/agent  -17.2   ep_len 400.0   completed  0/10
-   policy: reward/agent  -16.5   ep_len 400.0   completed  0/10   <- converged here
-   greedy: reward/agent +155.3   ep_len  23.7   completed 10/10
+nocomm2_final at 4 cartons, 10 episodes
+  argmax     delivered 1.9/4   pickups 2.6   completed 0/10
+  sampled    delivered 2.8/4   pickups 3.3   completed 0/10
+  greedy     delivered 4.0/4   makespan 23   completed 30/30
 ```
 
-Landing 0.7 above a hard-coded `stay` is not learning. **Always score `stay` on the same
-settings before believing a reward curve** — it takes thirty seconds and it is the only
-thing that tells you what the plateau means.
+Termination is an **AND over every carton**, so delivering 3 of 4 earns nearly all the
+reward and zero success. **`success_rate` cannot distinguish "delivers nothing" from
+"delivers all but the last one".** That is why `rollout/delivered_fraction` now exists —
+watch it beside `success_rate`, because the two failures need opposite fixes:
 
-Four further defects, each measured:
+| delivered_fraction | success_rate | meaning |
+|---|---|---|
+| rising | flat 0 | competent; something stops it closing. Look at the last carton |
+| flat low | flat 0 | not working at all. Go back to 11a |
 
-1. **Shelf collisions were an exploration tax the optimal policy never pays.** A random
-   policy took 105.8 collision events per episode, **93.8 of them against shelving**;
-   greedy took 0.0 across 10 episodes. Predicted cost of a random episode: &minus;476.
-   Measured reward at iteration 1: &minus;478. The entire initial reward was collisions.
-   *Fixed by refusing the move* — driving into a shelf is now an invalid action costing
-   the specification's &minus;0.5, exactly as driving off the grid always was. **No
-   reward constant changed.**
-2. **Picking up a carton was punished.** Φ switched from "nearest carton" to "depot" when
-   `is_carrying` flipped, so it fell off a cliff at the key transition. On a *perfect*
-   greedy episode, all four pickups scored negative: &minus;0.469, &minus;0.107,
-   &minus;0.399, &minus;0.698. *Fixed* with a remaining-work Φ measured in cartons, which
-   is continuous across both pickup and delivery.
-3. **Shaping was diluted 10× and went flat.** It was added inside the 0.10 individual
-   bucket, so `shaping_scale=15` delivered 1.5. And Φ returned 0 for a non-carrying robot
-   once every carton was claimed — at 4 cartons with 4 robots, from step 6 onward.
-   *Fixed*: `F_i` now sits outside the 90/10 split, so `R_i = 0.90·shared +
-   0.10·individual_i + F_i`, and `n_undelivered` keeps Φ moving all episode.
-4. **Discovery was never the bottleneck.** A *random* policy already achieves 3.0 pickups
-   and 1.3 deliveries per episode. The reward was reachable and simply outweighed 476:12.
-   This is why a behaviour-cloning warm start also failed (0/10 completed, 76.4% action
-   match): it solved a problem the run did not have.
+### 11c. The three defects run 4 exposed
 
-After those fixes, at 4 cartons: a pickup pays **+2.06** (was &minus;0.70), shelf
-collisions are **0.0** (was 93.8), and random's collision cost fell from &minus;476 to
-&minus;44.
+**Euclidean distance in a warehouse full of shelves.** Φ measured straight-line distance
+to the target, but robots have to drive around six shelf rows. Measured over seeds
+1000-1009, **10.2% of free cells were local minima** — every legal move increased the
+distance, so the shaping punished all of them and the robot was paid to stand still.
+Φ is now geodesic (BFS over enterable cells), which has no local minima by construction.
 
-### And a fifth defect, which the first canary found
+**Idle robots had no gradient at all.** Φ's target search skipped cartons already in
+someone's gripper, so a robot with nothing left to claim got a constant Φ. Since only
+movement can collide and an invalid PICKUP cannot, its cheapest action was to grab at
+thin air: **1,480 of 6,000 robot-steps were PICKUP with nothing in reach**, 25% of the
+episode, with movement at 21%. Φ now falls back to the nearest undelivered carton
+wherever it is.
 
-That canary - 153,600 steps at 4 cartons with `shaping_scale=6.0` - **still failed**.
-`ep_len_mean` was 150.0 every iteration and `success_rate` 0.00, while reward rose
-&minus;65 to &minus;16.7 and entropy barely moved. `scripts/probe_policy.py` on the
-checkpoint says what the curve could not:
+**The curriculum was one-way.** It promoted to 4 cartons at 3.6M and had no route back,
+so 82% of the run trained against an all-zero success signal. That is not neutral — it
+**destroyed** the 2-carton ability the policy already had, from ~55% success down to
+0/10. The ladder now demotes on sustained failure or on spending 30% of the run at one
+level, and gained a 3-carton rung so the 2 → 4 doubling is no longer where it breaks.
 
-```
-deterministic: stay 100%                                    -> STANDING STILL
-stochastic   : turnL 18%  turnR 23%  PICKUP 21%  DROP 10%  stay 26%
-               fwd 2%   back 1%                             <- it will not drive
-```
-
-It learned to turn and grab but never to move. That is correct play, because **only
-movement can collide** - turning, staying, PICKUP and DROP cannot - so the collision
-penalty is a risk premium on the one action class that makes progress:
-
-```
-EV(move) = shaping gain  -  P(collision | move) x 4.5  -  time penalty
-         =    +0.150     -        0.1076 x 4.5         -     0.045      =  -0.227
-```
-
-P(collision | move) measures 0.108 under random play, 0.146 mid-episode when random
-walkers jam the aisles, 0.053 once dispersed, and 0.031 for greedy - elevated throughout,
-not a spawn-cluster artifact.
-
-`shaping_scale` is therefore **30.0**, giving EV(move) = **+0.221** under random play. A
-scale that large is safe because with the shaping gamma at 1 the episode total telescopes
-exactly to `scale x (Phi_end - Phi_start)`, independent of path: it changes gradient
-magnitude and nothing else, and no trajectory can farm it.
-
-**The lesson generalises.** An earlier version of this guide compared the shaping gain to
-the time penalty and called 3x healthy. Wrong competitor - the time penalty is charged
-whether or not the robot moves, so it can never be the reason a policy refuses to move.
-
-### Check the incentives before you train — it costs seconds
+### 11d. Check the incentives before you train — it costs seconds
 
 ```powershell
-.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 1
+.venv\Scripts\python.exe scripts\diagnose_incentives.py --num-cartons 4
 ```
 
-It prints the reward budget for `stay`, `random` and `greedy` side by side and gates on
-the six things that actually went wrong: *a pickup pays*, *a delivery pays*, *exploring
-is survivable*, *greedy dominates*, *greedy does not hit shelves*, and ***moving is worth
-it***. Every failure above would have been caught by it in under a minute instead of
-after half an hour of training.
-Re-run it after any change to Φ or to `shaping_scale` — the arithmetic is not stable
-across a redefinition.
+Six gates. The one that matters most is **`EV(move) > 0`**: only movement can collide, so
+the collision penalty is a risk premium on the single action class that makes progress,
+and when it exceeds the shaping gain the optimal policy is to turn, grab and freeze.
 
-### And check what a checkpoint actually does
+Passing every gate does **not** promise the policy will learn. It means the reward is not
+the reason if it does not.
+
+### 11e. And check what a checkpoint actually does
 
 ```powershell
-.venv\Scripts\python.exe scripts\probe_policy.py models\<run>_final.zip --num-cartons 1
+.venv\Scripts\python.exe scripts\probe_policy.py models\run_final.zip --num-cartons 4
+.venv\Scripts\python.exe scripts\probe_pickup.py models\run_final.zip --num-cartons 4
 ```
 
-Action mix, pickups, deliveries and collisions, deterministic and stochastic, with a
-stated verdict: *standing still*, *thrashing*, *moving but not working*, *working but not
-finishing*, or *completing episodes*. `ep_rew_mean` cannot distinguish the first from the
-fourth and both look like a smoothly rising curve - which is how three runs were misread.
+`probe_policy` states a verdict — standing still / thrashing / moving but not working /
+working but not finishing / completing — which `ep_rew_mean` cannot, and three runs were
+misread because of it. `probe_pickup` conditions on the one state that decides the task:
+a carton in reach and an empty gripper. Run both argmax and sampled; they disagree
+sharply, and a policy is not broken merely because its argmax is.
 
-Deterministic and stochastic can disagree sharply, so both are reported. The
-behaviour-cloned policy scored 0.0 deliveries under argmax and 2.1 under sampling: greedy
-uses a single `backward` for a 180-degree turn, so the demonstrator is bimodal from one
-observation and the argmax flips between modes. A policy is not broken merely because its
-argmax is.
-
-### Then run a canary, not a campaign
-
-```powershell
-.venv\Scripts\python.exe -u train.py --run-name canary --timesteps 150000 --num-cartons 1 --curriculum --worlds 10 --checkpoint-every 25000
-```
-
-One carton is an ~8-step task for greedy and the cap there is 60 steps, so a canary shows
-its hand quickly. **Kill rule: if `ep_len_mean` has not dropped below the cap by 100k
-steps, the run is dead — stop it rather than letting it finish.** Four runs were allowed
-to finish before that rule existed.
-
-A canary at 4 cartons is *not* a valid substitute, and that was the trap: an untrained
-policy cannot complete a 4-carton episode at all, so `success_rate` stays at exactly zero
-no matter how much the policy improves underneath. One carton is the smallest task where
-the metric can move.
+---
 
 ## 12. Troubleshooting
 

@@ -71,6 +71,9 @@ def slot_infos(info, world):
             "is_success": info["is_success"],
             "all_delivered": info["all_delivered"],
             "delivered": info["delivered"],
+            # Paired with "delivered" so EpisodeStatsCallback can report a
+            # fraction, which stays comparable across curriculum levels.
+            "active_cartons": info["active_cartons"],
             "remaining_resources": info["remaining_resources"],
             "collisions": info["collisions"],
             "picked_up": info["pickups"][a],
@@ -122,6 +125,15 @@ class SlotLayout:
 
     def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
         return [False] * len(self._slot_indices(indices))
+
+    def _fan_out_masks(self, per_world):
+        """
+        `action_masks()` returns one (NUM_AGENTS, n) array per world, but MaskablePPO
+        calls `env_method("action_masks")` and stacks the result expecting one row per
+        SLOT. Without this the stack is (num_worlds, 4, n) and MaskablePPO silently
+        misreads it as a batch of the wrong size.
+        """
+        return [row for world_masks in per_world for row in np.asarray(world_masks)]
 
     def _reshape_actions(self, actions):
         """(slots,) without comms, (slots, 2) with - column 1 being the token."""
@@ -224,5 +236,6 @@ class HiveMindSharedPolicyVecEnv(SlotLayout, VecEnv):
             setattr(self.envs[w], attr_name, value)
 
     def env_method(self, method_name: str, *args, indices=None, **kwargs) -> list:
-        return [getattr(self.envs[w], method_name)(*args, **kwargs)
-                for w in self._worlds_for(indices)]
+        out = [getattr(self.envs[w], method_name)(*args, **kwargs)
+               for w in self._worlds_for(indices)]
+        return self._fan_out_masks(out) if method_name == "action_masks" else out

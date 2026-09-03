@@ -33,7 +33,6 @@ import time
 
 import numpy as np
 import pybullet as pb
-from stable_baselines3 import PPO
 
 from hivemind_env.env import (
     ACTION_NAMES,
@@ -43,8 +42,7 @@ from hivemind_env.env import (
     joint_from_slot_actions,
     policy_uses_comms,
 )
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS
-
+from hivemind_env.training import is_maskable, load_policy
 
 
 def main():
@@ -72,7 +70,8 @@ def main():
 
     deterministic = not args.stochastic
     print(f"Loading model weights from: {args.model}")
-    model = PPO.load(args.model, custom_objects=INFERENCE_CUSTOM_OBJECTS, device="cpu")
+    model, _ = load_policy(args.model, device="cpu")
+    masked = is_maskable(model)
 
     # Whether the robots can talk is a property of the checkpoint, not a flag: a comms
     # policy emits a token with every movement and a silent env rejects it outright.
@@ -119,7 +118,8 @@ def main():
                 # obs is (4, 177) - one row per robot. PPO reads that as a batch of 4
                 # observations and returns 4 actions, which is exactly the joint action
                 # the env wants.
-                raw, _ = model.predict(obs, deterministic=deterministic)
+                kw = {"action_masks": env.action_masks()} if masked else {}
+                raw, _ = model.predict(obs, deterministic=deterministic, **kw)
                 actions = joint_from_slot_actions(raw, NUM_AGENTS)
                 moves = actions[:, 0] if actions.ndim == 2 else actions
                 for a in moves:

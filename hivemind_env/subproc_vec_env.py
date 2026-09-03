@@ -195,7 +195,8 @@ class HiveMindSubprocVecEnv(SlotLayout, VecEnv):
         worlds = self._worlds_for(indices)
         for w in worlds:
             self.remotes[w].send(("env_method", (method_name, args, kwargs)))
-        return [self.remotes[w].recv() for w in worlds]
+        out = [self.remotes[w].recv() for w in worlds]
+        return self._fan_out_masks(out) if method_name == "action_masks" else out
 
     def __del__(self):
         try:

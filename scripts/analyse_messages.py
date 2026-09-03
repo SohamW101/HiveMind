@@ -50,7 +50,6 @@ import sys
 import numpy as np
 
 import torch
-from stable_baselines3 import PPO
 
 from hivemind_env.env import (
     MESSAGE_MODES,
@@ -61,11 +60,7 @@ from hivemind_env.env import (
     joint_from_slot_actions,
     policy_uses_comms,
 )
-from hivemind_env.training import (
-    INFERENCE_CUSTOM_OBJECTS,
-    entropy_bits,
-    get_device,
-)
+from hivemind_env.training import entropy_bits, get_device, is_maskable, load_policy
 
 MAX_ENTROPY_BITS = math.log2(MSG_TOKENS)
 
@@ -180,7 +175,8 @@ def rollout(model, episodes, num_cartons, message_mode, deterministic, seed0,
                     feats["agent"].append(i)
                     feats["phase"].append(min(3, int(4 * env.current_step / env.max_steps)))
 
-            raw, _ = model.predict(batch, deterministic=deterministic)
+            kw = {"action_masks": env.action_masks()} if is_maskable(model) else {}
+            raw, _ = model.predict(batch, deterministic=deterministic, **kw)
             action = joint_from_slot_actions(raw, NUM_AGENTS)
             obs, _, terminated, truncated, info = env.step(action)
 
@@ -395,7 +391,7 @@ def main():
     args = ap.parse_args()
 
     device = get_device()
-    model = PPO.load(args.model, device=device, custom_objects=INFERENCE_CUSTOM_OBJECTS)
+    model, _ = load_policy(args.model, device=device)
     if not policy_uses_comms(model):
         sys.exit(
             f"{os.path.basename(args.model)} has action space {model.action_space} - no "
