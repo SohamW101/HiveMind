@@ -7,7 +7,7 @@ once. The single-agent branch this was ported from kept three byte-identical cop
 carried the same learning-rate bug in two of them.
 """
 import os
-from collections import deque
+from collections import defaultdict, deque
 from typing import Callable
 
 import numpy as np
@@ -108,121 +108,189 @@ def _episode_succeeded(info, reward) -> bool:
 
 class CurriculumCallback(BaseCallback):
     """
-    Promotes along TRAINING_CURRICULUM when the rolling success rate over the last
-    `window_size` completed episodes exceeds `target_success_rate`, logging the level at
-    every check so TensorBoard shows exactly when each transition happened, and
-    restarting the learning-rate schedule on promotion.
+    Difficulty as a MIXTURE across worlds, not a single level everyone shares.
 
-    Under the shared-policy wrapper `window_size` counts robot-episodes, not
-    world-episodes - four slots per world all report the same outcome.
+    WHY THIS IS NOT A LADDER ANY MORE
+
+    Two runs died on the discrete version, in opposite ways.
+
+    `nocomm2` promoted to 4 cartons at 3.6M steps, never solved a single episode again,
+    and had no route back - so 82% of the run trained against an all-zero signal. That
+    is not merely wasted: it DESTROYED the 2-carton ability the policy already had,
+    ~55% success down to 0/10.
+
+    Adding a demotion fixed that and produced a new failure: `nocomm3` promoted to 4,
+    failed, demoted to 3, recovered, promoted again - five clean cycles between 7M and
+    20M steps with constant amplitude and no sign of breaking out. A stable limit cycle.
+    It never rotted, and it never progressed either.
+
+    Both failures come from the same root: every world runs the SAME difficulty, so the
+    policy gets gradient from exactly one level at a time and loses the other. Flip all
+    32 worlds at once and you get a shock; flip them back and you get an oscillation.
+
+    So difficulty is now a real number `p` and each world independently draws a level
+    from the two integers around it:
+
+        p = 3.0   ->  85% of worlds at 3 cartons, 15% probing 4
+        p = 3.5   ->  50/50
+        p = 4.0   ->  85% at 4, 15% probing 8
+
+    `p` moves by 0.25 per check. Nothing flips, so there is nothing to oscillate; the
+    easier level never disappears, so nothing is forgotten; and a slice of worlds is
+    always probing one level up, so evidence about the harder task arrives continuously
+    rather than only after a promotion commits to it.
+
+    THE LEARNING RATE IS NO LONGER RESTARTED
+
+    The old callback reset the schedule to its initial value on every level change. That
+    was defensible for a one-way ladder - a genuinely new task to adapt to. Under the
+    oscillation it was actively harmful: `nocomm3` changed level roughly every 1.2M
+    steps, so the learning rate was permanently near its peak and the policy never
+    settled long enough to consolidate anything. Roughly 13M of its 20M steps went into
+    that cycle at high learning rate. There are no discrete promotions to hang a restart
+    on now, and the linear decay simply runs.
     """
+
+    #: Fraction of worlds kept one level above `p` even when p sits on an integer, so
+    #: evidence about the next difficulty never stops arriving.
+    PROBE_FRACTION = 0.15
+
     def __init__(
         self,
-        initial_lr: float,
-        check_freq: int = 1000,
+        check_freq: int = 2048,
         target_success_rate: float = 0.70,
-        window_size: int = 500,
-        reset_lr_on_promotion: bool = True,
-        demote_below: float = 0.05,
-        demote_after_checks: int = 4,
-        level_budget_fraction: float = 0.30,
+        demote_below: float = 0.10,
+        step: float = 0.25,
+        min_samples: int = 100,
+        window_size: int = 300,
+        seed: int = 0,
         verbose: int = 1,
     ):
         super().__init__(verbose)
-        self.initial_lr = initial_lr
         self.check_freq = check_freq
         self.target_success_rate = target_success_rate
-        self.window_size = window_size
-        self.reset_lr_on_promotion = reset_lr_on_promotion
         self.demote_below = demote_below
-        self.demote_after_checks = demote_after_checks
-        self.level_budget_fraction = level_budget_fraction
-        self.delivery_history = deque(maxlen=window_size)
-        self._bad_checks = 0
-        self._level_started_at = 0
+        self.step = step
+        self.min_samples = min_samples
+        # Success history bucketed BY CARTON COUNT, not pooled. With a mixture in play a
+        # pooled rate is an average over difficulties and says nothing about either.
+        self.history = defaultdict(lambda: deque(maxlen=window_size))
+        self.position = 1.0
+        self._rng = np.random.default_rng(seed)
+        self._applied = None
 
-    def _change_level(self, current, new, reason):
-        cartons = TRAINING_CURRICULUM[new]
-        print(f"\n[Curriculum] Step {self.num_timesteps:,} | {reason} | "
-              f"Level {current} -> {new} "
-              f"({TRAINING_CURRICULUM[current]} -> {cartons} cartons)\n")
-        self.training_env.set_attr("difficulty_level", new)
-        # The line that makes a level change real. Until 2026-08-31 only
-        # `difficulty_level` was set, which the world stores and never reads.
-        self.training_env.set_attr("num_cartons", cartons)
-        # The cap has to move with it, or the level is handed a budget sized for a
-        # different one. Both take effect at the next reset.
-        self.training_env.set_attr("max_steps", max_steps_for(cartons))
+    # -- the mixture ------------------------------------------------------------
+    def _mixture(self):
+        """(lower level, upper level, share of worlds at the upper level)."""
+        low = int(np.clip(np.floor(self.position), 1, MAX_TRAINING_LEVEL))
+        high = min(low + 1, MAX_TRAINING_LEVEL)
+        if high == low:
+            return low, high, 0.0
+        return low, high, float(max(self.PROBE_FRACTION, self.position - low))
 
-        self.delivery_history.clear()
-        self._bad_checks = 0
-        self._level_started_at = self.num_timesteps
+    def _apply_mixture(self):
+        """
+        Deal a level to each world. Takes effect at that world's next reset.
 
-        if self.reset_lr_on_promotion:
-            progress = self.model._current_progress_remaining
-            self.model.lr_schedule = restart_schedule(self.initial_lr, progress)
-            print(f"[Curriculum] Learning rate schedule restarted at {self.initial_lr:.0e}")
+        The COUNT at the probe level is computed and then that many worlds are chosen at
+        random - not an independent coin flip per world. With an independent draw at
+        share 0.15 over 8 worlds, zero worlds landing on the probe level is a routine
+        outcome, and zero probes means no evidence ever accumulates at the next
+        difficulty, which means `position` can never advance. That is a deadlock, and it
+        showed up the first time this was tested.
+        """
+        low, high, share = self._mixture()
+        n_worlds = max(1, self.training_env.num_envs // NUM_AGENTS)
 
+        n_high = 0 if high == low else max(1, int(round(share * n_worlds)))
+        n_high = min(n_high, n_worlds - 1) if n_worlds > 1 else n_high
+        probing = set(self._rng.choice(n_worlds, size=n_high, replace=False).tolist())
+
+        counts = {}
+        for w in range(n_worlds):
+            cartons = TRAINING_CURRICULUM[high if w in probing else low]
+            # One slot identifies its world; the vec envs map slot -> world for writes.
+            slot = [w * NUM_AGENTS]
+            self.training_env.set_attr("num_cartons", cartons, slot)
+            self.training_env.set_attr("max_steps", max_steps_for(cartons), slot)
+            counts[cartons] = counts.get(cartons, 0) + 1
+
+        self._applied = counts
+        return counts
+
+    # -- the loop ---------------------------------------------------------------
     def _on_step(self) -> bool:
-        # Record the outcome of every env that finished this step. Pair each `done` with
-        # ITS OWN env's reward and info - indexing rewards[0] inside this loop credited
-        # env 0's outcome to every worker.
-        dones = self.locals["dones"]
-        infos = self.locals.get("infos") or [{}] * len(dones)
-        for done, reward, info in zip(dones, self.locals["rewards"], infos):
-            if done:
-                self.delivery_history.append(1 if _episode_succeeded(info, reward) else 0)
+        # Record each finished episode against the difficulty IT was run at. Pair every
+        # `done` with its own env's reward and info - indexing rewards[0] in this loop
+        # once credited env 0's outcome to every worker.
+        infos = self.locals.get("infos") or []
+        for done, reward, info in zip(self.locals["dones"], self.locals["rewards"], infos):
+            if not done or not isinstance(info, dict):
+                continue
+            cartons = info.get("active_cartons")
+            if cartons:
+                self.history[cartons].append(1 if _episode_succeeded(info, reward) else 0)
 
         if self.n_calls % self.check_freq != 0:
             return True
 
-        current = self.training_env.get_attr("difficulty_level")[0]
-        self.logger.record("curriculum/difficulty_level", current)
-        self.logger.record("curriculum/target_cartons", TRAINING_CURRICULUM[current])
-        self.logger.record("curriculum/steps_at_level",
-                           self.num_timesteps - self._level_started_at)
+        if self._applied is None:
+            print(f"\n[Curriculum] Mixture starting at position {self.position:.2f}")
+            self._apply_mixture()
 
-        if len(self.delivery_history) < self.window_size:
-            return True
+        low, high, share = self._mixture()
+        low_cartons = TRAINING_CURRICULUM[low]
+        high_cartons = TRAINING_CURRICULUM[high]
 
-        success_rate = sum(self.delivery_history) / len(self.delivery_history)
-        self.logger.record("curriculum/success_rate", success_rate)
+        self.logger.record("curriculum/position", self.position)
+        self.logger.record("curriculum/difficulty_level", low)
+        self.logger.record("curriculum/target_cartons", high_cartons)
+        self.logger.record("curriculum/fraction_at_target", share)
+        # The honest "how hard is training right now" number, and the one to read
+        # alongside delivered_fraction: it moves smoothly instead of stepping.
+        self.logger.record("curriculum/mean_cartons",
+                           (1.0 - share) * low_cartons + share * high_cartons)
+        for cartons in sorted(self.history):
+            hist = self.history[cartons]
+            if hist:
+                self.logger.record(f"curriculum/success_at_{cartons}",
+                                   sum(hist) / len(hist))
 
-        # -- promote ---------------------------------------------------------------
-        if success_rate >= self.target_success_rate and current < MAX_TRAINING_LEVEL:
-            self._change_level(current, current + 1,
-                               f"Success {success_rate*100:.1f}% >= "
-                               f"{self.target_success_rate*100:.0f}%")
-            return True
-
-        # -- demote ----------------------------------------------------------------
-        # The ladder was one-way until 2026-09-03, and that cost a whole run: nocomm2
-        # promoted to 4 cartons at 3.6M, never solved a single episode again, and had no
-        # route back over the remaining 16.4M steps. Worse, it did not merely fail to
-        # learn the harder level - it LOST the easier one, dropping from ~55% at 2
-        # cartons to 0/10 by the end. Training against an all-zero success signal is not
-        # neutral.
+        # Move on evidence from a specific level, never on a rate pooled across the
+        # mixture - a pooled number averages over difficulties and describes none of them.
         #
-        # Two independent triggers, because they catch different failures: a level that
-        # is hopeless from the start, and one that looks survivable but never converges.
-        if current > 1:
-            hopeless = success_rate < self.demote_below
-            self._bad_checks = self._bad_checks + 1 if hopeless else 0
+        # ADVANCE when the probe level succeeds. RETREAT only when the level most worlds
+        # are actually running fails. Those are deliberately asymmetric. A probe level
+        # being hard is the normal state of affairs - that is what a probe is for - so
+        # retreating on it makes the position bounce across the integer forever, measured
+        # on a synthetic policy with a hard wall at 4 cartons as a permanent 2.75 <-> 3.00
+        # cycle. Retreat exists for the real failure, which is the BULK of training having
+        # moved somewhere the policy cannot cope, and the base level is what reports that.
+        probed = self.history[high_cartons]
+        base = self.history[low_cartons]
+        before = self.position
+        judged, rate_hist = None, None
 
-            budget = self.level_budget_fraction * getattr(
-                self.model, "_total_timesteps", 0)
-            stalled = budget > 0 and (self.num_timesteps - self._level_started_at) > budget
+        if (low != high and len(probed) >= self.min_samples
+                and sum(probed) / len(probed) >= self.target_success_rate):
+            self.position = min(float(MAX_TRAINING_LEVEL), self.position + self.step)
+            judged, rate_hist = high_cartons, probed
+        elif (len(base) >= self.min_samples
+                and sum(base) / len(base) < self.demote_below):
+            self.position = max(1.0, self.position - self.step)
+            judged, rate_hist = low_cartons, base
 
-            if self._bad_checks >= self.demote_after_checks:
-                self._change_level(current, current - 1,
-                                   f"Success {success_rate*100:.1f}% < "
-                                   f"{self.demote_below*100:.0f}% for "
-                                   f"{self._bad_checks} checks - DEMOTING")
-            elif stalled:
-                self._change_level(current, current - 1,
-                                   f"{self.level_budget_fraction:.0%} of the run spent "
-                                   f"at this level without promotion - DEMOTING")
+        if self.position == before:
+            return True
 
+        rate = sum(rate_hist) / len(rate_hist)
+        counts = self._apply_mixture()
+        spread = "  ".join(f"{n}x{c} cartons" for c, n in sorted(counts.items()))
+        direction = "harder" if self.position > before else "easier"
+        print(f"\n[Curriculum] Step {self.num_timesteps:,} | "
+              f"{judged} cartons at {rate * 100:.0f}% over {len(rate_hist)} episodes "
+              f"| {before:.2f} -> {self.position:.2f} ({direction}) | {spread}\n",
+              flush=True)
         return True
 
 

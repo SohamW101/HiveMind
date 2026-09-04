@@ -312,7 +312,7 @@ def main():
     if args.comms:
         callbacks.append(MessageStatsCallback(check_freq=2048))
     if args.curriculum:
-        callbacks.append(CurriculumCallback(initial_lr=args.lr, check_freq=2048))
+        callbacks.append(CurriculumCallback(check_freq=2048, seed=args.seed))
     if args.checkpoint_every < args.timesteps:
         callbacks.append(CheckpointCallback(
             save_freq=max(1, args.checkpoint_every // slots),
