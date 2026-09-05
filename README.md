@@ -1,366 +1,259 @@
-# HiveMind Multi-Agent Warehouse
+# HiveMind Warehouse
 
-Four warehouse robots learn to divide a delivery job between themselves — and, later, to
-develop a communication protocol that helps them do it — using multi-agent reinforcement
-learning in PyBullet. Twelve cartons sit in randomised shelf aisles; the robots must
-collect them all and deliver them to a depot as fast as possible, with no central
-controller assigning the work.
+HiveMind is a four-robot multi-agent reinforcement-learning environment in PyBullet. The
+robots collectively pick up twelve resources from a randomized warehouse and deliver all
+of them to a depot. The research question is whether they learn useful communication from
+discrete broadcast tokens, rather than receiving hand-written roles or routes.
 
-The research claim is about **emergent communication**, not navigation.
+The implementation-plan-compatible default is a 177-value observation per robot. An
+explicit V4 mode provides the decentralized sensor-derived map observation. Simulator
+ground truth is used only for physics, rewards, and diagnostics in that mode.
 
-A Gymnasium environment provides the world: a 13×13 m arena regenerated every reset, four
-differential-drive robots with a 72-ray planar LiDAR, solid shelving, twelve cartons, and
-a depot. Observations, rewards, collisions and episode boundaries are all implemented; a
-shared policy trains across all four robots.
+## Task definition
 
-## Training
+The world is a 13 x 13 grid with 1 m cells. Six horizontal shelf rows are generated at
+rows 1, 3, 5, 7, 9, and 11. Each row contains three shelf segments with positive lengths
+whose total is nine cells. The two one-cell gaps hold resources, giving twelve resources.
+Shelf lengths and gap positions are randomized on every reset while preserving this
+structure.
 
-**See [TRAINING.md](TRAINING.md) for the full runbook** — setup on a fresh machine, the
-verification checklist, every flag, throughput tuning, what to watch while a run is going,
-how to evaluate a checkpoint and how to read the result.
+The depot is corner cell `(0, 0)`. Four robots spawn in the literal corner cells:
 
-The short version:
-
-```powershell
-.venv\Scripts\python.exe train.py --timesteps 2000000 --worlds 12    # ~40 minutes
-.venv\Scripts\python.exe scripts\run_evaluation.py --model models\<run>_final.zip --episodes 30
+```text
+agent 0: (0, 0)    agent 1: (0, 12)
+agent 2: (12, 0)   agent 3: (12, 12)
 ```
 
-**The target is makespan 97** — the greedy baseline, over 30 fixed seeds. A policy that
-does not beat it has not demonstrated anything.
+The depot marker is visual-only, so agent 0 can safely start there. Robots, shelves, shelf
+posts, cartons, and boundary walls have collision geometry. A robot may not enter a wall or
+shelf cell. Cartons are pickup targets and are not permanent navigation obstacles.
 
-## Current Status
+An episode terminates when every active resource has been delivered and truncates at the
+configured step limit. Curriculum episodes can activate fewer resources while preserving
+the twelve-slot resource identity used by diagnostics.
 
-- Four bots are spawned in the warehouse.
-- The warehouse is a 13 x 13 grid with 1 m cells.
-- Six shelf rows are generated at grid rows 1, 3, 5, 7, 9, and 11.
-- Shelves contain cartons on the lower two rows. The top shelf row is empty.
-- Shelf segment lengths are randomized on every reset while preserving two gaps per shelf row.
-- Twelve carton resources are placed in the gaps.
-- The depot is at grid cell `(0, 0)` and is shown in semi-transparent black.
-- The floor is light brown and the boundary walls are brown.
-- Bot chassis and arm booms are metallic black; grippers and lidar are metallic grey; wheels retain their dark colour.
-- Cartons are 0.5 m x 0.5 m x 0.5 m.
-- The lidar mast starts at its initial height and raises to 0.5 m while a carton is carried,
-  and drives a real 72-ray planar scan reported in the observation.
-- Shelves are solid: the bottom plate overlaps the robot chassis, so entering a shelf cell
-  registers contact and costs the collision penalty. Aisles constrain routing.
-- Pickup and drop are implemented as environment actions.
-- Robots can push cartons. They are solid bodies, so the world is not static.
+The depot is an interaction target, not a place where a delivery robot needs to stand. A
+robot must perform `drop` from exactly one cardinal grid cell away from `(0, 0)`, such as
+`(0, 1)` or `(1, 0)`. The drop action never moves a robot into the depot cell.
 
-The environment is a complete RL problem and the training pipeline runs end to end. It
-reports a pinned 177-float observation including a 72-ray LiDAR sweep, pays the reward
-structure from `MAWC_Technical_Specification.pdf` §3, treats shelves and other robots as
-solid obstacles that cost `-5.0` on contact, and ends episodes on completion or the step
-limit. `train.py` trains a shared policy across all four robots and the saved checkpoint
-loads back into the evaluation harness.
+## Decentralized state and maps
 
-**The greedy baseline is the number to beat: makespan 97, 100% completion over 30 fixed
-seeds.** No learned policy has been run against it yet, so no policy result exists.
+The environment separates simulator truth, agent belief, and policy input. The actor never
+receives the global carton table, all robot poses, or the privileged static occupancy grid.
 
-The training scaffolding in `hivemind_env/training.py` and the evaluation harness in
-`scripts/run_evaluation.py` are ported and adapted for four agents, but they cannot train
-or score a policy until observations and rewards exist. `smoke_test.py` reports exactly
-which of these are still outstanding.
+Each robot owns an independent six-layer 13 x 13 map:
 
-## Setup
+1. unknown
+2. free
+3. static obstacle
+4. resource
+5. other robot
+6. depot
 
-The project runs from a virtual environment at the repository root. There is no activate
-step in the documented workflow -- call the interpreter by path:
+The map is fixed in world orientation and centered on that robot's spawn cell. Its spawn
+cell is the map origin; turning does not rotate the map. At reset, cells are unknown except
+for the known depot and the robot origin. After each settled physics step, that robot's
+LiDAR updates only its own map. Ray traversals mark free cells and the first hit marks a
+shelf, wall, resource, or nearby robot. Dynamic robot evidence is range-limited and may
+become stale; it is never copied between agents.
 
-```powershell
-py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe -m pip install -e .
+The LiDAR mount is fixed at chassis level in the robot URDF and never raises when carrying.
+The arm yaw joint is attached to the fixed mast rod at an elevated Z, above the LiDAR link.
+During pickup, the carton is moved onto the arm's forward centreline and lifted to a fixed
+high Z position; its bottom clears the constant LiDAR scan plane. This keeps perception
+geometrically consistent while preventing the carried carton from occluding the chassis-level
+scan or hanging at the side of the robot.
+
+## Pickup arm sequence
+
+The arm is attached to the mast through two joints:
+
+```text
+lidar_post_link -> arm_lift_joint -> arm_lift_link -> arm_yaw_joint -> arm_base_link
 ```
 
-Then run everything as:
+`arm_lift_joint` is prismatic, moves only on the Z axis, and has a lower position of `0.0`
+and an upper position of `0.38 m`. The fixed mast rod is `0.48 m` long and terminates at
+that upper slide position; no mast extends above the arm mechanism. The LiDAR remains a
+separate fixed joint at chassis level.
 
-```powershell
-.venv\Scripts\python.exe <script>
-```
+One `pickup` action executes this sequence across the physics substeps:
 
-`hivemind_env` is installed editable, so imports resolve without setting `PYTHONPATH`.
+1. Rotate the arm yaw toward the resource.
+2. Lower the arm slide to the resource center height.
+3. Lift the arm slide to its carried height, above the LiDAR plane.
+4. Return arm yaw to `0`, the robot-forward position.
 
-The stack this is currently developed and tested against:
+The resource follows the gripper during the sequence. After pickup, its XY position is
+always directly in front of the robot and its center is raised to `z = 0.7 m`. Drop lowers
+the resource to depot height and releases it; it must be executed from exactly one cardinal
+cell away from the depot and never moves the robot into the depot.
 
-| Package | Version |
+The implementation-plan default V3 observation is a flat vector of 177 floats: 105 state
+values and message values, with the 72-ray LiDAR at indices `[57:129]`. The custom CNN
+extractor in `hivemind_env/models.py` processes those LiDAR values separately. Explicit V4
+mode (`obs_dim=1143, decentralized=True`) provides the six-layer local-map observation for
+the decentralized map experiment.
+
+## Actions and collision safety
+
+Each robot chooses its movement action simultaneously with one communication token:
+
+| Action | Meaning |
 | --- | --- |
-| Python | 3.14 |
-| pybullet | 3.2.7 |
-| gymnasium | 1.3.0 |
-| numpy | 2.5.2 |
-| torch | 2.13.0 |
-| stable-baselines3 / sb3-contrib | 2.9.0 |
+| `0` | move forward one cell |
+| `1` | move backward one cell |
+| `2` | turn left |
+| `3` | turn right |
+| `4` | pick up the nearest resource in range |
+| `5` | drop the carried resource at the depot |
+| `6` | stay |
 
-The core runtime dependencies are Gymnasium, NumPy, and PyBullet. `requirements.txt` also
-contains the training and utility packages.
+Pickup and drop use the same strict interaction configuration:
 
-### Smoke test
-
-Confirm the environment imports, constructs, resets, and steps:
-
-```powershell
-.venv\Scripts\python.exe smoke_test.py
+```text
+INTERACTION_DISTANCE_CELLS = 1
 ```
 
-It reports three states -- `PASS` (works now), `TODO` (a roadmap item that is genuinely
-not built yet), and `FAIL` (a real breakage). Only `FAIL` sets a non-zero exit code, so
-the `TODO` lines double as a progress tracker for the remaining roadmap.
+The robot must occupy a cardinal neighbor of the target cell. Diagonal distance, zero
+distance, and two-or-more-cell distance are invalid. Pickup is therefore performed from a
+cell directly adjacent to the resource, and drop is performed from a cell directly
+adjacent to the depot. The action masks use the same rule as `step()`, so masked pickup
+and drop actions cannot select a position that the environment would reject.
 
-## Watch It Run
+Movement proposals are resolved before physics. A move is rejected when it would enter an
+occupied cell, collide with another proposal, swap positions with another robot, leave the
+grid, or enter a shelf cell. Conflicting moves are rejected together so agent ordering
+cannot permanently privilege one robot. Rejected moves are reported as blocked or invalid;
+valid evaluation episodes must have zero physical robot-robot contacts.
 
-To watch the scripted baseline solve a warehouse, or a trained checkpoint attempt one:
+## Communication
 
-```powershell
-.venv\Scripts\python.exe scripts
-un_evaluation.py --baseline greedy --episodes 3 --levels 3
-.venv\Scripts\python.exe test_run.py models
-un_final.zip --num-cartons 4 --stochastic
+Communication is global, discrete, and delayed by one environment step. A robot hears the
+other three robots in fixed speaker order and never hears itself. Every token is a learned
+symbol; the environment assigns no meanings such as “claim resource 3” or “go left”. The
+first observation is silent because no token has yet been emitted.
+
+Training can apply independent dropout to every listener-speaker link. Evaluation supports
+`learned`, `silent`, `shuffled`, and `random` channel modes. These interventions test
+whether tokens carry coordination information rather than adding unused entropy. The
+environment records emitted tokens, received tokens, dropped links, and message diagnostics
+in `info`.
+
+## Reward and metrics
+
+The reward combines shared and individual terms:
+
+- shared completion: `+100` once
+- shared delivery: `+10` per delivered resource
+- shared makespan bonus: `+50 * (max_steps - finish_step) / max_steps`
+- shared time cost: `-0.05` per step
+- individual pickup: `+1`
+- individual delivery: `+2`
+- invalid action: `-0.5`
+- optional idle cost: `-0.02`
+- physical collision event: `-5`
+
+Shared reward has weight `0.90` and individual reward has weight `0.10`. Optional
+potential-based shaping is added separately and reported separately. It uses reachable grid
+distance rather than straight-line distance, so shelves do not create false local minima.
+
+The important evaluation metrics are completion rate, makespan, delivered fraction,
+physical collisions, blocked-by-agent moves, invalid actions, distance travelled, and
+message dependence. Reward alone is not a success criterion.
+
+## Installation
+
+From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-`test_run.py` opens PyBullet in GUI mode. Run it both ways: a policy whose argmax has
-collapsed looks frozen under the default and works under `--stochastic`.
+Python 3.10 or newer is supported. The runtime uses Gymnasium, NumPy, and PyBullet.
+Stable-Baselines3, sb3-contrib, and PyTorch are included for training integrations.
 
-To drive the environment directly, create it with `render_mode=None` and call `reset()`
-and `step()`:
+## Minimal environment check
 
 ```python
 from hivemind_env.env import HiveMindMultiAgentEnv
 
-env = HiveMindMultiAgentEnv(render_mode=None)
+env = HiveMindMultiAgentEnv(render_mode=None, comms=True, lidar_noise=False)
 try:
     observation, info = env.reset(seed=0)
-    observation, reward, terminated, truncated, info = env.step([6, 6, 6, 6])
+    print(observation.shape)  # (4, 177)
+    observation, reward, terminated, truncated, info = env.step(
+        [[6, 0], [6, 0], [6, 0], [6, 0]]
+    )
 finally:
     env.close()
 ```
 
-On the current code that yields a `(4, 105)` float32 `observation`, four per-agent
-rewards, `terminated`/`truncated` flags, and an `info` dict carrying robot positions,
-remaining resources, delivery count, collisions, per-agent pickup/delivery/invalid-action
-flags, and a full `reward_breakdown`.
-Note that `env.close()` is not yet idempotent -- a second call raises
-`pybullet.error("Not connected to physics server.")`.
+Use `[6, 6, 6, 6]` with `comms=False`. Use a `(4, 2)` array with `comms=True`; column
+zero is movement and column one is the token. Flattened communication actions are rejected
+to prevent silent wiring bugs.
 
-## Environment API
+## Environment verifier
 
-The environment uses a four-element `MultiDiscrete` action space. One action is supplied for each bot:
+Run the deterministic integration test from the repository root:
 
-| Action | Meaning |
-| --- | --- |
-| `0` | Move forward one grid cell |
-| `1` | Move backward one grid cell |
-| `2` | Turn left |
-| `3` | Turn right |
-| `4` | Pick up the nearest carton within range |
-| `5` | Drop the carried carton near the depot |
-| `6` | Stay in place |
-
-Each action is executed with physics substeps for smooth motion. The environment returns
-an observation, a per-agent reward list, termination flags, and an info dictionary
-carrying robot positions, remaining resources, delivery count and the observation width.
-
-### Observation
-
-`observation_space` is `Box(-1.0, 1.0, (4, 177), float32)` — one row per robot, every
-value normalised into `[-1, 1]`. **The width is pinned at 177 and must not change**: it is
-baked into a trained policy's input layer, so moving it invalidates every saved
-checkpoint. Adding a component means a new `OBS_DIM_V4`, never an edit to V3.
-
-| slice | size | component |
-| --- | --- | --- |
-| `[ 0: 3]` | 3 | own pose (x, y, heading) |
-| `[ 3: 5]` | 2 | own velocity, cells per step |
-| `[ 5: 6]` | 1 | own carrying flag |
-| `[ 6:15]` | 9 | other robots' poses |
-| `[15:18]` | 3 | other robots' carrying flags |
-| `[18:30]` | 12 | carton status (available / mine / other's / delivered) |
-| `[30:54]` | 24 | carton positions — 12 × (x, y), same index as the status slots |
-| `[54:56]` | 2 | depot direction |
-| `[56:57]` | 1 | elapsed time |
-| `[57:129]` | 72 | LiDAR — 270° arc, 0.1–10 m, Gaussian noise |
-| `[129:177]` | 48 | message slots — 3 speakers × 16 one-hot tokens, zero when `comms=False` |
-
-The message slots were reserved before communication existed, precisely so that adding it
-would not change the width — and on 2026-09-02 it was added and the width did not move.
-Communication is opt-in (`comms=True`, `train.py --comms`); with it off the slots stay
-zero and every checkpoint trained before it still loads, which is what keeps the
-no-communication baseline a valid control. The full component table, the encoding of each
-field and the reasoning behind every choice live at the top of `hivemind_env/env.py`.
-
-Check it end to end — this drives a robot through a full pickup and delivery and verifies
-each component against PyBullet ground truth:
-
-```powershell
-.venv\Scripts\python.exe scripts/verify_observations.py
+```bash
+.venv/bin/python verify_environment.py
 ```
 
-### Rewards
+It checks the warehouse structure, all four corner spawns, LiDAR range and obstacle
+evidence, private map updates and anchoring, observation bounds, obstacle rejection,
+robot movement arbitration, pickup, depot delivery, delayed broadcast tokens, dropout
+configuration, exact one-cell pickup/drop distance, and clean environment shutdown. It uses `seed=123`/`seed=9` and disables
+LiDAR noise so failures are reproducible. It validates environment mechanics; it does not
+claim that a learned policy has solved the task.
 
-Transcribed from `MAWC_Technical_Specification.pdf` §3. Shared rewards (90% weight) are
-identical for all four agents; individual rewards (10%) are per agent.
+For a visual hard-coded warehouse walkthrough, run:
 
-| Scope | Event | Reward |
-| --- | --- | --- |
-| Shared | All 12 delivered | `+100.0` once per episode |
-| Shared | Per delivery (any bot) | `+10.0` |
-| Shared | Makespan bonus | `+50 × (T_max − T_actual) / T_max`, once per episode |
-| Shared | Collision (any robot pair) | `−5.0` per event |
-| Shared | Time | `−0.05` per step |
-| Individual | Own pickup | `+1.0` |
-| Individual | Own delivery | `+2.0` |
-| Individual | Idle (not moving, not at depot) | `−0.02` per step |
-| Individual | Invalid action | `−0.5` |
-
-`R_total_i = 0.90 × R_shared + 0.10 × R_individual_i`
-
-An episode `terminated`s when all 12 cartons are delivered and `truncated`s at
-`max_steps` (2000). `T_max` is `max_steps` — this environment counts steps, not seconds.
-
-The spec's replanning penalty is **not** implemented: it fires when A* re-runs, and this
-environment has no planner by design. The constant is defined and
-left unused so the omission is visible.
-
-Check it end to end — this drives a robot through a full delivery, printing the reward
-and its breakdown every step, then verifies each term against the spec:
-
-```powershell
-.venv\Scripts\python.exe scripts/verify_rewards.py
+```bash
+.venv/bin/python verify_environment.py --gui
 ```
 
-### Check the incentives before training
+The walkthrough resets with seed `2026`, verifies the fixed twelve-resource layout, then
+moves agent 0 through every resource in order, executing pickup, return-to-depot, and drop
+actions. Agents 1-3 remain visible and stationary so the full four-robot scene can be
+inspected. The normal environment remains randomized; this fixed seed belongs only to the
+demonstration script. On machines without a display, run the identical route with:
 
-Four training runs completed zero episodes before it became clear the reward, not the
-algorithm, was the problem. This prints the reward budget for `stay`, `random` and
-`greedy` side by side and gates on the failures that actually happened — chiefly *does a
-pickup pay?* (for a while it did not) and *is moving worth it?* (for a while it was not,
-because only movement can trigger the shared collision penalty, so the policy learned to
-turn and grab while never driving).
-
-```powershell
-.venv\Scripts\python.exe scripts/diagnose_incentives.py --num-cartons 4
+```bash
+.venv/bin/python verify_environment.py --headless-demo
 ```
 
-Run it before any training run and after any change to the shaping potential. It takes
-under a minute; the failures it catches used to take half an hour each.
+## Experimental protocol
 
-## Greedy baseline
-
-A scripted controller — each robot claims the nearest unclaimed carton, delivers it, and
-repeats. Its makespan is the reference every learned policy is quoted against, and it is
-scored through the same harness, seeds and metrics as a policy so the comparison is
-valid.
-
-```powershell
-.venv\Scripts\python.exe scripts/run_evaluation.py --baseline greedy --episodes 30
-```
-
-| Metric | Value |
-| --- | --- |
-| Cartons | Makespan | Completion | Distance | Collisions |
-| --- | --- | --- | --- | --- |
-| 4 | 23 | 30/30 | 40.5 m | 2.8 |
-| 8 | 58 | 30/30 | 122.4 m | 5.4 |
-| 12 | **97** | 30/30 | 232.6 m | 6.7 |
-
-Results are written to `docs_analysis/greedy_baseline.json`.
-
-Note on an earlier version of this table: until 2026-08-31 `run_evaluation.py` passed
-`difficulty_level` to the environment and never `num_cartons`, and the world stores that
-attribute without reading it — so **every level ran the full 12 cartons** while the
-summary labelled them 4, 8 and 12. Any per-level number produced by that harness before
-then is a 12-carton number whatever its row said.
-
-## Training in depth
-
-All four robots share one set of weights. `HiveMindSharedPolicyVecEnv` presents each
-four-robot world as four policy-facing slots, so PPO trains on the pooled experience of
-every robot in every world.
-
-```powershell
-# smoke run - ~4k steps, exercises the whole pipeline in about two minutes
-.venv\Scripts\python.exe train.py --smoke
-
-# a real run
-.venv\Scripts\python.exe train.py --timesteps 5000000 --worlds 8
-```
-
-Each warehouse runs in its own process by default (`--backend subproc`), because training
-is dominated by single-threaded PyBullet physics rather than by the network. Combined with
-the default of 5 physics substeps, a 16-thread machine measures **844 robot-steps/s end to
-end against 34/s** before either change — a 2M-step run takes about 40 minutes rather than
-16 hours. Use `--backend inprocess` when debugging: a traceback inside a worker is much
-harder to read.
-
-Substeps are an interpolation, not the motion model. Makespan, collisions, deliveries and
-completion are identical at any value — verified across the full 30-seed baseline at 30,
-10, 5 and 1. Override with `--substeps`; GUI runs keep 30 so the demo animates smoothly.
-
-The profile is now roughly half physics and half policy update, so a CUDA GPU is worth
-having at this point; before these changes it would have addressed under 4% of the run.
-
-TensorBoard is optional. If it is not installed, training runs and simply writes no
-curves rather than failing.
-
-This is parameter sharing with a decentralised critic, not MAPPO — `hivemind_env/vec_env.py`
-explains what that trade buys and when to replace it.
-
-## Files And Assets
+The required comparison is:
 
 ```text
-.
-├── requirements.txt            Python dependencies
-├── pyproject.toml              Package metadata and core dependencies
-├── TRAINING.md                 Full training runbook: setup, tuning, monitoring, results
-├── smoke_test.py               Import / device / reset / step check; PASS-TODO-FAIL report
-├── train.py                    Shared-policy PPO training entry point
-├── test_run.py                 Watch a checkpoint in the GUI, argmax or sampled
-├── scripts/
-│   ├── run_evaluation.py       Fixed-seed evaluation harness; makespan is the headline
-│   ├── verify_observations.py  Drives a full delivery, checking every observation field
-│   ├── verify_rewards.py       Prints reward per step and checks it against the spec
-│   ├── verify_comms.py         The communication channel: routing, dropout, ablations
-│   ├── analyse_messages.py     Is the learned channel a protocol or decoration?
-│   ├── diagnose_incentives.py  Reward budget for stay / random / greedy, with gates
-│   ├── probe_policy.py         What a checkpoint actually does: action mix and verdict
-│   ├── probe_pickup.py         Does it press PICKUP when a carton is in reach?
-│   └── watch_run.py            Live compact view of a training log
-└── hivemind_env/
-    ├── env.py                  Gymnasium environment and warehouse generation
-    ├── greedy.py               Scripted baseline controller; the makespan to beat
-    ├── gridnav.py              BFS and grid helpers shared by the verifiers
-    ├── vec_env.py              4 robots -> 4 policy slots sharing one set of weights
-    ├── subproc_vec_env.py      Same, one process per warehouse; the fast path
-    ├── models.py               HiveMindExtractor: MLP + 1-D CNN over the LiDAR sweep
-    ├── training.py             Shared scaffolding: curriculum callback, LR schedules,
-    │                           env factory, device probe, version-safe policy loader
-    └── assets/
-        ├── carton.urdf         0.5 m carton resource
-        ├── diff_drive_bot.urdf Shared four-bot model
-        ├── generate_shelves.py Shelf URDF generator
-        ├── shelf_1m.urdf       Generated 1 m shelf
-        ├── shelf_2m.urdf       Generated 2 m shelf
-        ├── shelf_3m.urdf       Generated 3 m shelf
-        ├── shelf_4m.urdf       Generated 4 m shelf
-        ├── shelf_5m.urdf       Generated 5 m shelf
-        ├── shelf_6m.urdf       Generated 6 m shelf
-        ├── shelf_7m.urdf       Generated 7 m shelf
-        └── shelf.urdf          Legacy shelf asset, not used by env.py
+local maps + no communication
+versus
+local maps + learned communication
 ```
 
-To regenerate the generated shelf URDFs after changing the shelf or carton layout:
+Both arms must use identical layouts, seeds, episode budgets, curriculum, network capacity,
+and optimizer settings. Also evaluate the communication policy with messages silenced,
+randomized, and speaker-shuffled. A communication claim is supported only when channel
+corruption harms coordination while sensing and action conditions remain unchanged.
 
-```powershell
-.venv\Scripts\python.exe hivemind_env/assets/generate_shelves.py
-```
+Recommended progression:
 
-## Development Notes
+1. Verify one-resource pickup and delivery.
+2. Train with one resource.
+3. Promote through two, four, eight, and twelve resources.
+4. Establish the local-map no-communication baseline.
+5. Train the local-map communication policy.
+6. Run channel ablations and fixed-seed evaluation.
+7. Compare against greedy and centralized oracle baselines.
 
-- Run commands from the repository root so relative asset paths resolve correctly.
-- Invoke the interpreter as `.venv\Scripts\python.exe`. There is no activate step; do not
-  create a second environment or install packages without checking first.
-- The environment seeds Python's `random` module and NumPy when `reset(seed=...)` is called, making shelf segmentation reproducible for a given seed.
-- PyBullet GUI shutdown with `Ctrl+C` is expected to produce exit code 130.
-- The shelf URDFs inline the carton geometry and visual details. PyBullet may emit inertial warnings if older generated assets are present; regenerate the shelves after modifying the generator.
+Before trusting results, verify four-corner spawns, shelf geometry, map independence, LiDAR
+map updates, delayed messages, action arbitration, zero-contact safety, resource
+conservation, and reproducibility across fixed seeds. V3 is only an oracle/control
+condition; it is not evidence of decentralized coordination.

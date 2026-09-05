@@ -9,7 +9,7 @@ from collections import deque
 import time
 
 # =============================================================================
-# OBSERVATION LAYOUT V3 - PINNED AT 177 FLOATS PER ROBOT. READ BEFORE CHANGING.
+# OBSERVATION LAYOUTS V3/V4 - READ BEFORE CHANGING.
 # =============================================================================
 #
 # The flatten width is baked into saved policy weights, so a checkpoint only loads into
@@ -24,9 +24,11 @@ import time
 #
 #   V1   81  no carton positions - five layouts gave one identical observation
 #   V2  105  adds carton positions, no LiDAR - added when shelves became solid
-#   V3  177  adds 72 LiDAR rays. Current, and what every checkpoint was trained at.
+#   V3  177  implementation-plan observation with 72 LiDAR rays.
+#   V4 1143  decentralized spawn-centered map, local sensors, and messages.
 #
-# Neither V1 nor V2 was ever trained against; both are refused at construction.
+# V3 is the implementation-plan default. V4 is retained as an explicit decentralized
+# local-map experiment selected with decentralized=True.
 #
 #   slice      size  component           encoding
 #   [  0:  3]     3  own pose            x, y over arena half-extent; heading wrapped
@@ -66,7 +68,7 @@ import time
 # THE COMMUNICATION CHANNEL (roadmap step 7, landed 2026-09-02)
 # =============================================================================
 #
-# The 48 slots were reserved and zeroed from 2026-08-29 so that filling them today did
+# The 48 slots were reserved and zeroed from 2026-08-29 so that filling them did
 # not move the width. That is what pinning was for: had they been added now, every
 # no-comms checkpoint would have become unloadable, destroying the before/after
 # comparison that is this project's contribution.
@@ -167,6 +169,14 @@ OBS_WORLD_DIM = (
 # other three, never itself. Spec section 2.4 sets the vocabulary at K = 16 tokens.
 MSG_TOKENS = 16
 OBS_MESSAGE_DIM = MSG_TOKENS * (NUM_AGENTS - 1)  # 48
+
+# V4 is the optional decentralized local-map observation. The map is maintained per agent
+# and is populated from that agent's LiDAR and received messages, not simulator
+# ground truth. V3 remains available for legacy checkpoint compatibility.
+LOCAL_MAP_CHANNELS = 6  # unknown, free, static obstacle, resource, agent, depot
+LOCAL_MAP_CELLS = 13 * 13
+OBS_LOCAL_VECTOR = OBS_OWN_POSE + OBS_OWN_VELOCITY + OBS_OWN_CARRYING + 2 + 1 + OBS_LIDAR
+OBS_DIM_V4 = LOCAL_MAP_CHANNELS * LOCAL_MAP_CELLS + OBS_LOCAL_VECTOR + OBS_MESSAGE_DIM
 
 # The token index that means "nothing arrived". It is NOT a symbol a robot can choose -
 # see choice 3 in the header. Emitted as the all-zero vector, which no one-hot equals.
@@ -289,10 +299,10 @@ INDIVIDUAL_WEIGHT = 0.10
 # below 1.0 separates moving from not moving; 0.1 keeps the spec's number.
 IDLE_SPEED_THRESHOLD = 0.1
 
-# The spec's depot is a 2x2 m zone; here it is one cell, and "at depot" reuses the
-# drop-off action's 1.5-cell radius so a robot parked where it can legally deliver is
-# not also charged for idling there.
-DEPOT_RADIUS_CELLS = 1.5
+# Pickup and drop are adjacent-cell interactions. A robot must remain in a cardinal
+# neighbor cell; it may not stand on the resource cell or enter the depot cell to drop.
+INTERACTION_DISTANCE_CELLS = 1
+DEPOT_RADIUS_CELLS = 1.0
 
 # ---------------------------------------------------------------------------
 # Potential-based reward shaping - an ADDITION to the specification's table
@@ -403,8 +413,13 @@ def describe_observation_layout():
     The pinned layout as text. Printed by smoke_test.py so the dimension is visible
     in a run log rather than only in this docstring.
     """
-    lines = [f"Observation layout V3 - {OBS_DIM_V3} floats per robot, "
-             f"{NUM_AGENTS} robots -> shape ({NUM_AGENTS}, {OBS_DIM_V3})"]
+    lines = [
+        f"Observation layout V4 - {OBS_DIM_V4} floats per robot, "
+        f"{NUM_AGENTS} robots -> shape ({NUM_AGENTS}, {OBS_DIM_V4})",
+        f"  map: {LOCAL_MAP_CHANNELS} x 13 x 13",
+        f"  local vector: {OBS_LOCAL_VECTOR}   messages: {OBS_MESSAGE_DIM}",
+        f"Implementation-plan layout: V3 - {OBS_DIM_V3} floats per robot",
+    ]
     for name, sl in OBS_SLICES.items():
         note = ""
         if name == "messages":
@@ -484,8 +499,9 @@ class HiveMindMultiAgentEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
     carton_size = 0.5
     gripper_reach = 0.3
-    lidar_initial_height = 0.0
-    lidar_carry_height = 0.5
+    carried_resource_center_z = 0.7
+    arm_lift_pickup = 0.0
+    arm_lift_carried = 0.38
 
     def __init__(self, render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM,
                  show_lidar=None, obs_size=None, idle_penalises_turning=True,
@@ -493,7 +509,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                  num_cartons=None, shaping=True,
                  shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99,
                  comms=False, msg_dropout=MSG_DROPOUT_DEFAULT,
-                 message_mode="learned"):
+                 message_mode="learned", decentralized=False):
         super().__init__()
 
         # --- Communication (roadmap step 7) ---------------------------------------
@@ -511,6 +527,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                 f"header block and scripts/analyse_messages.py."
             )
         self.message_mode = message_mode
+        self.decentralized = bool(decentralized)
 
         # How many of the NUM_CARTONS slots carry a carton this episode; None means all
         # 12. The observation always reserves 12 - the width is pinned - so a smaller
@@ -566,15 +583,21 @@ class HiveMindMultiAgentEnv(gym.Env):
             )
 
         # Defence 3. A stale call site must not be able to build a mismatched env.
-        if obs_dim != OBS_DIM_V3:
+        valid_dims = (OBS_DIM_V4, OBS_DIM_V3)
+        if obs_dim not in valid_dims:
             hint = _SUPERSEDED_DIMS.get(obs_dim)
             hint = f" That width is superseded: {hint}." if hint else ""
             raise ValueError(
-                f"obs_dim={obs_dim} does not match the pinned observation width "
-                f"OBS_DIM_V3={OBS_DIM_V3}. The width is baked into saved policy weights, "
+                f"obs_dim={obs_dim} is not one of the supported observation widths "
+                f"V4={OBS_DIM_V4} or legacy V3={OBS_DIM_V3}. The width is baked into saved policy weights, "
                 f"so changing it silently invalidates every existing checkpoint.{hint} If a "
                 f"new width is genuinely wanted, add OBS_DIM_V4 alongside V3 and select it "
                 f"explicitly - see the layout block at the top of this module."
+            )
+        if not self.decentralized and obs_dim != OBS_DIM_V3:
+            raise ValueError(
+                "decentralized=False selects the legacy privileged V3 observation; "
+                f"pass obs_dim={OBS_DIM_V3} explicitly."
             )
         self.obs_dim = obs_dim
 
@@ -689,6 +712,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         # robots stay overlapped - the spec says "per collision event".
         self._dist_cache = None
         self._colliding_pairs = set()
+        self._blocked_by_agent = []
         self._episode_reward = np.zeros(self.num_agents, dtype=np.float64)
         self._makespan_awarded = False
         self.last_reward_breakdown = None
@@ -723,8 +747,10 @@ class HiveMindMultiAgentEnv(gym.Env):
         depot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.5, self.cell_size*0.5, 0.01], rgbaColor=[0, 0, 0, 0.5], physicsClientId=self.client_id)
         self.depot_id = pb.createMultiBody(baseMass=0, baseVisualShapeIndex=depot_vis, basePosition=[dx, dy, 0.01], physicsClientId=self.client_id)
 
-        # Spawn 4 bots near the depot
-        spawn_cells = [(0, 1), (1, 0), (0, 2), (2, 0)]
+        # Spawn one bot in each literal corner cell. The depot marker is visual-only,
+        # so the depot corner is safe to occupy and no spawn can overlap a shelf row.
+        spawn_cells = [(0, 0), (0, 12), (12, 0), (12, 12)]
+        self.spawn_cells = list(spawn_cells)
         
         self.robot_ids = []
         self.agent_state = []
@@ -743,10 +769,10 @@ class HiveMindMultiAgentEnv(gym.Env):
                 'arm_yaw_joint_idx': None,
                 'left_finger_joint_idx': None,
                 'right_finger_joint_idx': None,
-                'lidar_joint_idx': None,
+                'arm_lift_joint_idx': None,
                 'current_arm_yaw': 0.0,
+                'current_arm_lift': self.arm_lift_pickup,
                 'current_finger_pos': 0.03,  # Scaled by 2x from original 0.015
-                'current_lidar_height': self.lidar_initial_height
             }
             
             for j in range(pb.getNumJoints(rid, physicsClientId=self.client_id)):
@@ -762,11 +788,14 @@ class HiveMindMultiAgentEnv(gym.Env):
                     state['left_finger_joint_idx'] = j
                 elif jname == "right_finger_joint":
                     state['right_finger_joint_idx'] = j
-                elif jname == "lidar_joint":
-                    state['lidar_joint_idx'] = j
+                elif jname == "arm_lift_joint":
+                    state['arm_lift_joint_idx'] = j
                     
             self.agent_state.append(state)
-            self._set_arm_and_lidar_joints(i, state['current_arm_yaw'], state['current_finger_pos'], state['current_lidar_height'])
+            self._set_arm_and_finger_joints(
+                i, state['current_arm_yaw'], state['current_finger_pos'],
+                state['current_arm_lift']
+            )
 
         # 13x13 Warehouse Generation
         self.obstacle_ids = []
@@ -888,13 +917,28 @@ class HiveMindMultiAgentEnv(gym.Env):
         self._velocity = [(0.0, 0.0)] * self.num_agents
         self._lidar_cache = None
 
+        # Each bot owns an independent map in a fixed world-oriented frame. The
+        # centre cell is its spawn origin; map evidence is never copied between bots.
+        self.local_maps = np.zeros(
+            (self.num_agents, LOCAL_MAP_CHANNELS, self.grid_size, self.grid_size),
+            dtype=np.float32,
+        )
+        self.local_maps[:, 0] = 1.0  # unknown
+        self.map_age = np.full(
+            (self.num_agents, self.grid_size, self.grid_size), np.inf, dtype=np.float32
+        )
+        for i, (r, c) in enumerate(self.spawn_cells):
+            self._mark_map_cell(i, r, c, 5)
+            dr, dc = self.depot_pos_grid[0] - r, self.depot_pos_grid[1] - c
+            self._mark_map_cell(i, r + dr, c + dc, 5)
+
         # Baseline for potential-based shaping. Must be sampled after the curriculum has
         # removed inactive cartons, or the first step pays a spurious jump.
         self._prev_potential = [self._potential(i) for i in range(self.num_agents)]
 
         return self._get_obs(), self._get_info()
 
-    def _set_arm_and_lidar_joints(self, agent_idx, arm_yaw, finger_pos, lidar_height):
+    def _set_arm_and_finger_joints(self, agent_idx, arm_yaw, finger_pos, arm_lift):
         rid = self.robot_ids[agent_idx]
         st = self.agent_state[agent_idx]
         if st['arm_yaw_joint_idx'] is not None:
@@ -903,8 +947,8 @@ class HiveMindMultiAgentEnv(gym.Env):
             pb.resetJointState(rid, st['left_finger_joint_idx'], finger_pos, physicsClientId=self.client_id)
         if st['right_finger_joint_idx'] is not None:
             pb.resetJointState(rid, st['right_finger_joint_idx'], -finger_pos, physicsClientId=self.client_id)
-        if st['lidar_joint_idx'] is not None:
-            pb.resetJointState(rid, st['lidar_joint_idx'], lidar_height, physicsClientId=self.client_id)
+        if st['arm_lift_joint_idx'] is not None:
+            pb.resetJointState(rid, st['arm_lift_joint_idx'], arm_lift, physicsClientId=self.client_id)
 
     def _get_cardinal_direction_angle(self, target_world_pos, robot_world_pos, robot_yaw):
         dx = target_world_pos[0] - robot_world_pos[0]
@@ -968,8 +1012,8 @@ class HiveMindMultiAgentEnv(gym.Env):
             start_state = {
                 'pos': pos, 'yaw': yaw,
                 'arm_yaw': st['current_arm_yaw'],
+                'arm_lift': st['current_arm_lift'],
                 'finger': st['current_finger_pos'],
-                'lidar': st['current_lidar_height'],
                 'wheel_delta': 0.0
             }
             target_state = start_state.copy()
@@ -1013,11 +1057,26 @@ class HiveMindMultiAgentEnv(gym.Env):
                         min_dist = dist
                         nearest_res = res_id
                 
-                if nearest_res is not None and min_dist <= self.cell_size * 1.5:
+                resource_cell = None if nearest_res is None else self._world_to_grid(
+                    *pb.getBasePositionAndOrientation(
+                        nearest_res, physicsClientId=self.client_id
+                    )[0][:2]
+                )
+                robot_cell = self._world_to_grid(*pos[:2])
+                adjacent = (
+                    resource_cell is not None and
+                    abs(resource_cell[0] - robot_cell[0]) +
+                    abs(resource_cell[1] - robot_cell[1]) == INTERACTION_DISTANCE_CELLS
+                )
+                if nearest_res is not None and adjacent:
                     res_pos, _ = pb.getBasePositionAndOrientation(nearest_res, physicsClientId=self.client_id)
-                    target_state['arm_yaw'] = self._get_cardinal_direction_angle(res_pos, pos, yaw)
+                    # Pickup always presents the carton on the bot's forward
+                    # centreline. The resource may start to the side, but once
+                    # acquired it must never remain side-mounted.
+                    target_state['pickup_resource_yaw'] = self._get_cardinal_direction_angle(res_pos, pos, yaw)
+                    target_state['arm_yaw'] = 0.0
+                    target_state['arm_lift'] = self.arm_lift_carried
                     target_state['finger'] = -0.01
-                    target_state['lidar'] = self.lidar_carry_height
                     self.is_carrying[i] = True
                     self.carried_resource_ids[i] = nearest_res
                     self.resource_ids.remove(nearest_res)
@@ -1030,10 +1089,12 @@ class HiveMindMultiAgentEnv(gym.Env):
             elif action == 5 and self.is_carrying[i]:  # Drop Off
                 dep_pos, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
                 dist = math.hypot(pos[0] - dep_pos[0], pos[1] - dep_pos[1])
-                if dist <= self.cell_size * DEPOT_RADIUS_CELLS:
+                robot_cell = self._world_to_grid(*pos[:2])
+                if (abs(robot_cell[0] - self.depot_pos_grid[0]) +
+                    abs(robot_cell[1] - self.depot_pos_grid[1]) == INTERACTION_DISTANCE_CELLS):
                     target_state['arm_yaw'] = self._get_cardinal_direction_angle(dep_pos, pos, yaw)
+                    target_state['arm_lift'] = self.arm_lift_pickup
                     target_state['finger'] = 0.03
-                    target_state['lidar'] = 0.0
                     target_state['dropoff'] = True
                     target_state['drop_target'] = dep_pos
                     did_deliver[i] = True
@@ -1043,6 +1104,36 @@ class HiveMindMultiAgentEnv(gym.Env):
 
             starts.append(start_state)
             targets.append(target_state)
+
+        # Resolve all robot movement proposals before physics. This makes collision
+        # avoidance an environment invariant rather than a hope induced by reward.
+        move_indices = [i for i in range(self.num_agents)
+                        if actions[i] in (0, 1) and targets[i]['pos'] != starts[i]['pos']]
+        start_cells = [self._world_to_grid(s['pos'][0], s['pos'][1]) for s in starts]
+        target_cells = [self._world_to_grid(targets[i]['pos'][0], targets[i]['pos'][1])
+                        for i in range(self.num_agents)]
+        rejected = set()
+        for a in move_indices:
+            for b in move_indices:
+                if a >= b:
+                    continue
+                same_destination = target_cells[a] == target_cells[b]
+                swap = (target_cells[a] == start_cells[b] and
+                        target_cells[b] == start_cells[a])
+                enter_occupied = (target_cells[a] in start_cells and
+                                  target_cells[a] != start_cells[a]) or (
+                                      target_cells[b] in start_cells and
+                                      target_cells[b] != start_cells[b])
+                if same_destination or swap or enter_occupied:
+                    rejected.update((a, b))
+        for i in rejected:
+            targets[i]['pos'] = starts[i]['pos']
+            targets[i]['wheel_delta'] = 0.0
+            invalid_action[i] = True
+        self._blocked_by_agent = [
+            [a, b] for a in range(self.num_agents) for b in range(a + 1, self.num_agents)
+            if a in rejected and b in rejected
+        ]
 
         # Simultaneous Execution
         for step_idx in range(1, num_substeps + 1):
@@ -1061,10 +1152,31 @@ class HiveMindMultiAgentEnv(gym.Env):
                 pb.resetBasePositionAndOrientation(rid, [ix, iy, s['pos'][2]], iorn, physicsClientId=self.client_id)
                 
                 # Interpolate Joints
-                st['current_arm_yaw'] = s['arm_yaw'] + (t['arm_yaw'] - s['arm_yaw']) * alpha
+                if actions[i] == 4 and 'pickup_resource_yaw' in t:
+                    pickup_phase = min(alpha * 4.0, 3.999999)
+                    phase = int(pickup_phase)
+                    phase_alpha = pickup_phase - phase
+                    if phase == 0:
+                        arm_yaw = s['arm_yaw'] + (t['pickup_resource_yaw'] - s['arm_yaw']) * phase_alpha
+                        arm_lift = s['arm_lift']
+                    elif phase == 1:
+                        arm_yaw = t['pickup_resource_yaw']
+                        arm_lift = s['arm_lift'] + (self.arm_lift_pickup - s['arm_lift']) * phase_alpha
+                    elif phase == 2:
+                        arm_yaw = t['pickup_resource_yaw']
+                        arm_lift = self.arm_lift_pickup + (self.arm_lift_carried - self.arm_lift_pickup) * phase_alpha
+                    else:
+                        arm_yaw = t['pickup_resource_yaw'] + (t['arm_yaw'] - t['pickup_resource_yaw']) * phase_alpha
+                        arm_lift = self.arm_lift_carried
+                    st['current_arm_yaw'] = arm_yaw
+                    st['current_arm_lift'] = arm_lift
+                else:
+                    st['current_arm_yaw'] = s['arm_yaw'] + (t['arm_yaw'] - s['arm_yaw']) * alpha
+                    st['current_arm_lift'] = s['arm_lift'] + (t['arm_lift'] - s['arm_lift']) * alpha
                 st['current_finger_pos'] = s['finger'] + (t['finger'] - s['finger']) * alpha
-                st['current_lidar_height'] = s['lidar'] + (t['lidar'] - s['lidar']) * alpha
-                self._set_arm_and_lidar_joints(i, st['current_arm_yaw'], st['current_finger_pos'], st['current_lidar_height'])
+                self._set_arm_and_finger_joints(
+                    i, st['current_arm_yaw'], st['current_finger_pos'], st['current_arm_lift']
+                )
                 
                 # Wheels
                 if actions[i] in [0, 1]:
@@ -1102,17 +1214,22 @@ class HiveMindMultiAgentEnv(gym.Env):
                     start_res_pos = t['res_start_pos']
                     cur_res_x = start_res_pos[0] + alpha * (carried_rx - start_res_pos[0])
                     cur_res_y = start_res_pos[1] + alpha * (carried_ry - start_res_pos[1])
-                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
+                    pickup_z = self.carton_size / 2.0 + (
+                        st['current_arm_lift'] / self.arm_lift_carried
+                    ) * (self.carried_resource_center_z - self.carton_size / 2.0)
+                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, pickup_z], iorn, physicsClientId=self.client_id)
                 elif actions[i] == 5 and 'dropoff' in t: # Dropping off
                     res_id = self.carried_resource_ids[i]
                     if res_id:
                         dep_pos = t['drop_target']
                         cur_res_x = carried_rx + alpha * (dep_pos[0] - carried_rx)
                         cur_res_y = carried_ry + alpha * (dep_pos[1] - carried_ry)
-                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
+                        drop_z = self.carton_size / 2.0
+                        carried_z = self.carried_resource_center_z
+                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, carried_z + alpha * (drop_z - carried_z)], iorn, physicsClientId=self.client_id)
                 elif self.is_carrying[i] and self.carried_resource_ids[i]: # Carrying
                     res_id = self.carried_resource_ids[i]
-                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, self.carried_resource_center_z], iorn, physicsClientId=self.client_id)
 
             pb.stepSimulation(physicsClientId=self.client_id)
             if self.render_mode == "human":
@@ -1122,7 +1239,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         for i in range(self.num_agents):
             if actions[i] == 4 and 'pickup_target' in targets[i]:
                 self.agent_state[i]['current_arm_yaw'] = targets[i]['arm_yaw']
-                self._set_arm_and_lidar_joints(i, targets[i]['arm_yaw'], -0.01, self.lidar_carry_height)
+                self._set_arm_and_finger_joints(
+                    i, targets[i]['arm_yaw'], -0.01, self.arm_lift_carried
+                )
                 
             elif actions[i] == 5 and 'dropoff' in targets[i]:
                 res_id = self.carried_resource_ids[i]
@@ -1138,6 +1257,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                 self.agent_state[i]['current_arm_yaw'] = targets[i]['arm_yaw']
 
         self._update_kinematics()
+        self._update_local_maps()
 
         # --- Rewards and episode boundaries (spec S3) -------------------------
         collisions = self._detect_collisions()
@@ -1203,12 +1323,17 @@ class HiveMindMultiAgentEnv(gym.Env):
         masks = np.ones((self.num_agents, MOVE_ACTIONS), dtype=bool)
 
         for i in range(self.num_agents):
-            x, y, yaw_norm = self._canonical_pose(i)
-            yaw = yaw_norm * 2.0 * math.pi
+            x, y, yaw = self._canonical_pose(i)
             ahead = (x + self.cell_size * math.cos(yaw), y + self.cell_size * math.sin(yaw))
             behind = (x - self.cell_size * math.cos(yaw), y - self.cell_size * math.sin(yaw))
             masks[i, 0] = self._can_enter(*ahead)
             masks[i, 1] = self._can_enter(*behind)
+            occupied = {
+                self._world_to_grid(*self._canonical_pose(j)[:2])
+                for j in range(self.num_agents) if j != i
+            }
+            masks[i, 0] &= self._world_to_grid(*ahead) not in occupied
+            masks[i, 1] &= self._world_to_grid(*behind) not in occupied
 
             carrying = self.is_carrying[i]
             masks[i, 4] = (not carrying) and self._carton_within_reach(i)
@@ -1222,11 +1347,13 @@ class HiveMindMultiAgentEnv(gym.Env):
         return np.concatenate([masks, tokens], axis=1)
 
     def _carton_within_reach(self, agent_idx):
-        """Is an unclaimed carton inside the pickup radius? The same test step() makes."""
-        x, y, _ = self._canonical_pose(agent_idx)
+        """Is an unclaimed carton in exactly one cardinal neighboring cell?"""
+        robot_cell = self._world_to_grid(*self._canonical_pose(agent_idx)[:2])
         for rid in self.resource_ids:
             p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
-            if math.hypot(p[0] - x, p[1] - y) <= self.cell_size * 1.5:
+            resource_cell = self._world_to_grid(p[0], p[1])
+            if (abs(resource_cell[0] - robot_cell[0]) +
+                    abs(resource_cell[1] - robot_cell[1]) == INTERACTION_DISTANCE_CELLS):
                 return True
         return False
 
@@ -1355,9 +1482,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         return count
 
     def _at_depot(self, agent_idx):
-        dep, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
-        x, y, _ = self._canonical_pose(agent_idx)
-        return math.hypot(x - dep[0], y - dep[1]) <= self.cell_size * DEPOT_RADIUS_CELLS
+        robot_cell = self._world_to_grid(*self._canonical_pose(agent_idx)[:2])
+        return (abs(robot_cell[0] - self.depot_pos_grid[0]) +
+            abs(robot_cell[1] - self.depot_pos_grid[1]) == INTERACTION_DISTANCE_CELLS)
 
     def _geodesic_from(self, cell):
         """
@@ -1455,7 +1582,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                 return d
             # A carton shoved inside a shelf is not enterable, so BFS never reaches its
             # cell. The nearest enterable neighbour is what a robot would actually stand
-            # on to pick it up, and the env's 1.5-cell reach makes that a real pickup.
+            # on to pick it up, and the env's adjacent-cell interaction makes that a real pickup.
             r, c = target
             neighbours = [dist.get(n) for n in
                           ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))]
@@ -1739,6 +1866,63 @@ class HiveMindMultiAgentEnv(gym.Env):
         dists = np.clip(dists, LIDAR_MIN_RANGE, LIDAR_MAX_RANGE)
         return ((dists - LIDAR_MIN_RANGE) / span).astype(np.float32)
 
+    def _map_index(self, agent_idx, cell):
+        """Translate a world cell into the agent's spawn-centered map."""
+        sr, sc = self.spawn_cells[agent_idx]
+        r, c = cell
+        return r - sr + self.grid_size // 2, c - sc + self.grid_size // 2
+
+    def _mark_map_cell(self, agent_idx, world_r, world_c, channel):
+        mr, mc = self._map_index(agent_idx, (world_r, world_c))
+        if not (0 <= mr < self.grid_size and 0 <= mc < self.grid_size):
+            return
+        self.local_maps[agent_idx, 0, mr, mc] = 0.0
+        if channel == 1:
+            # A neighboring ray may traverse a cell already classified by a hit.
+            # Free evidence must not erase obstacle, resource, agent, or depot data.
+            if not np.any(self.local_maps[agent_idx, 2:, mr, mc] > 0.0):
+                self.local_maps[agent_idx, 1, mr, mc] = 1.0
+        elif channel == 2 and self.local_maps[agent_idx, 3, mr, mc] > 0.0:
+            # Cartons can geometrically overlap the shelf plate they occupy. Keep
+            # the more useful semantic class when later rays hit that plate.
+            pass
+        else:
+            self.local_maps[agent_idx, 1:, mr, mc] = 0.0
+            self.local_maps[agent_idx, channel, mr, mc] = 1.0
+        self.map_age[agent_idx, mr, mc] = 0.0
+
+    def _update_local_maps(self):
+        """Fuse each robot's current LiDAR returns into its private map."""
+        obstacles = set(self.obstacle_ids) | set(getattr(self, "wall_ids", []))
+        resources = set(self.resource_ids)
+        robots = set(self.robot_ids)
+        half = LIDAR_FOV_RAD / 2.0
+        for agent_idx in range(self.num_agents):
+            self.map_age[agent_idx] += 1.0
+            x, y, yaw = self._canonical_pose(agent_idx)
+            angles = yaw + np.linspace(-half, half, LIDAR_NUM_RAYS)
+            for angle in angles:
+                ca, sa = math.cos(float(angle)), math.sin(float(angle))
+                start = np.array([x + LIDAR_START_RADIUS * ca, y + LIDAR_START_RADIUS * sa, LIDAR_BEAM_Z])
+                end = np.array([x + LIDAR_MAX_RANGE * ca, y + LIDAR_MAX_RANGE * sa, LIDAR_BEAM_Z])
+                result = pb.rayTest(start.tolist(), end.tolist(), physicsClientId=self.client_id)[0]
+                distance = LIDAR_START_RADIUS + float(result[2]) * (LIDAR_MAX_RANGE - LIDAR_START_RADIUS)
+                samples = max(1, int(distance / (self.cell_size * 0.2)))
+                for fraction in np.linspace(0.0, 1.0, samples, endpoint=False):
+                    px = start[0] + fraction * (end[0] - start[0])
+                    py = start[1] + fraction * (end[1] - start[1])
+                    cell = self._world_to_grid(float(px), float(py))
+                    if self._in_bounds(float(px), float(py)):
+                        self._mark_map_cell(agent_idx, cell[0], cell[1], 1)
+                if result[0] >= 0:
+                    hit_cell = self._world_to_grid(
+                        float(start[0] + result[2] * (end[0] - start[0])),
+                        float(start[1] + result[2] * (end[1] - start[1])),
+                    )
+                    channel = 2 if result[0] in obstacles else 3 if result[0] in resources else 4 if result[0] in robots else 2
+                    self._mark_map_cell(agent_idx, hit_cell[0], hit_cell[1], channel)
+
+
     def _cached_lidar(self):
         """
         The scans used by both _get_obs() and _get_info(), swept once.
@@ -1775,12 +1959,15 @@ class HiveMindMultiAgentEnv(gym.Env):
 
     def _get_obs(self):
         """
-        One row per robot, shape (num_agents, OBS_DIM_V3), float32 in [-1, 1].
+        Build either the implementation-plan V3 observation or explicit decentralized V4.
 
         Every write goes through OBS_SLICES, so a layout change moves the data and the
         indices together. The final assertion is cheap and catches a component that
         silently produced the wrong number of values.
         """
+        if self.obs_dim == OBS_DIM_V4 and self.decentralized:
+            return self._get_local_obs()
+
         obs = np.zeros((self.num_agents, self.obs_dim), dtype=np.float32)
 
         depot_pos, _ = pb.getBasePositionAndOrientation(
@@ -1843,6 +2030,42 @@ class HiveMindMultiAgentEnv(gym.Env):
             )
         return obs
 
+    def _get_local_obs(self):
+        """Build the actor input from one bot's private map and local sensors."""
+        obs = np.zeros((self.num_agents, OBS_DIM_V4), dtype=np.float32)
+        scans = self._cached_lidar()
+        for i in range(self.num_agents):
+            cursor = 0
+            map_values = self.local_maps[i].reshape(-1)
+            obs[i, cursor:cursor + map_values.size] = map_values
+            cursor += map_values.size
+            r, c = self._world_to_grid(*self._canonical_pose(i)[:2])
+            sr, sc = self.spawn_cells[i]
+            obs[i, cursor:cursor + 3] = [
+                (r - sr) / (self.grid_size // 2),
+                (c - sc) / (self.grid_size // 2),
+                self._pose_features(i)[2],
+            ]
+            cursor += 3
+            obs[i, cursor:cursor + 2] = self._velocity[i]
+            cursor += 2
+            obs[i, cursor] = 1.0 if self.is_carrying[i] else 0.0
+            cursor += 1
+            dr = self.depot_pos_grid[0] - r
+            dc = self.depot_pos_grid[1] - c
+            obs[i, cursor:cursor + 2] = [dr / self.grid_size, dc / self.grid_size]
+            cursor += 2
+            obs[i, cursor] = self.current_step / float(self.max_steps)
+            cursor += 1
+            obs[i, cursor:cursor + OBS_LIDAR] = scans[i]
+            cursor += OBS_LIDAR
+            others = [j for j in range(self.num_agents) if j != i]
+            obs[i, cursor:cursor + OBS_MESSAGE_DIM] = np.concatenate(
+                [self._heard[i][j] for j in others]
+            )
+        np.clip(obs, -1.0, 1.0, out=obs)
+        return obs
+
     def _get_info(self):
         poses = []
         for rid in self.robot_ids:
@@ -1859,6 +2082,9 @@ class HiveMindMultiAgentEnv(gym.Env):
             "delivered_flags_total": sum(self.delivered),
             "obs_dim": self.obs_dim,
             "active_cartons": self.active_cartons,
+            "spawn_cells": list(self.spawn_cells),
+            "observation_version": "V4-local-map" if self.decentralized and self.obs_dim == OBS_DIM_V4 else "V3-plan",
+            "local_maps": self.local_maps.copy() if hasattr(self, "local_maps") else None,
             "is_carrying": list(self.is_carrying),
             # Communication (roadmap step 7). `message_tokens[j]` is what robot j SAID
             # this step - MSG_SILENT (-1) when it said nothing, which is every step
@@ -1870,6 +2096,7 @@ class HiveMindMultiAgentEnv(gym.Env):
             "message_tokens": self.message_tokens.tolist(),
             "messages_dropped": int(self._dropped.sum()),
             "shelf_contacts": self._shelf_contacts(),
+            "blocked_by_agent": [list(pair) for pair in self._blocked_by_agent],
             # Normalised scans as the policy sees them, plus the same thing in metres
             # so a human reading a log does not have to undo the normalisation.
             "lidar": [s.copy() for s in self._cached_lidar()],
