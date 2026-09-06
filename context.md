@@ -111,8 +111,11 @@
      - Collision Risk Tax (why bots froze: -4.5 collision penalty vs 0 progress reward).
      - The 1-Carton Swarm problem (4 bots chasing 1 carton in 1m aisles).
      - The 105-dim single-layer chokepoint (fixed by modular semantic extractor).
-3. **[PENDING] Missing Training Pipeline**:
-   - Since `train.py`, `vec_env.py`, and `training.py` were removed in `f2eb796`, `multi-agent-v2` needs a clean, modern `train.py` that hooks `HiveMindExtractor` into Stable-Baselines3 PPO, sets up parallel worlds, and implements curriculum learning (1 -> 2 -> 4 -> 8 -> 12 cartons).
+3. **[RESOLVED] Training Pipeline Implemented**:
+   - Built `train.py` wired to `HiveMindExtractor` via `get_policy_kwargs()`.
+   - Restored `hivemind_env/vec_env.py` and `hivemind_env/subproc_vec_env.py` for parallel multi-agent parameter sharing.
+   - Restored `hivemind_env/training.py` with `CurriculumCallback` (starts at 1 carton, walks 1 -> 2 -> 3 -> 4 -> 8 -> 12), with `reset_lr_on_promotion=False` to eliminate destructive sawtooth LR spikes.
+   - Validated end-to-end with smoke test (`train.py --smoke`).
 4. **[PENDING] Missing Evaluation & Baseline Scoring**:
    - `scripts/run_evaluation.py` is needed to evaluate trained checkpoints against the 97-step greedy baseline.
 
@@ -129,20 +132,15 @@
   - Upgraded `hivemind_env/models.py` to modular semantic feature extractor.
   - Fixed import paths and verified forward/backward passes in `testCNN.py`.
   - Created `ARCHITECTURE_IMPROVEMENTS.md` explaining the freeze causes and fixes in accessible terms.
-- [ ] **Step 3: Implement Clean Training Pipeline (`train.py`)**
-  - Implement a streamlined `train.py` supporting:
-    - Custom feature extractor `HiveMindExtractor`.
-    - Parameter-shared multi-agent execution (each 4-robot warehouse presented to SB3 as 4 policy slots).
-    - Subproc vectorization for multi-core parallelism (`--worlds`).
-    - Robust curriculum learning (1 carton -> 2 -> 4 -> 8 -> 12 cartons on rolling success threshold).
-    - Checkpointing and TensorBoard metrics.
-    - `--smoke` mode for immediate verification.
+- [x] **Step 3: Implement Clean Training Pipeline (`train.py`)**
+  - Implemented `train.py` with `HiveMindExtractor`, subproc vectorization, and stable curriculum.
+  - Smoke test ran 4,096 steps and completed without error.
 - [ ] **Step 4: Restore Evaluation Tooling**
   - Restore/adapt a greedy baseline evaluator and policy evaluator to compute makespan, collision rates, and completion percentages.
 - [ ] **Step 5: Test & Launch on Server**
   - Push updated code to `server:multi-agent-v2`.
   - Run a smoke test on the server.
-  - Start the 5M-step curriculum run in the background (detached / tmux) and monitor rollout metrics.
+  - Start the 5M-step curriculum run in a tmux session and monitor rollout metrics.
 
 ---
 
