@@ -123,9 +123,10 @@ class CurriculumCallback(BaseCallback):
         target_success_rate: float = 0.70,
         window_size: int = 500,
         reset_lr_on_promotion: bool = False,
-        demote_below: float = 0.05,
-        demote_after_checks: int = 4,
-        level_budget_fraction: float = 0.30,
+        min_steps_before_demote: int = 400_000,
+        demote_below: float = 0.03,
+        demote_after_checks: int = 20,
+        level_budget_fraction: float = 0.35,
         verbose: int = 1,
     ):
         super().__init__(verbose)
@@ -134,10 +135,12 @@ class CurriculumCallback(BaseCallback):
         self.target_success_rate = target_success_rate
         self.window_size = window_size
         self.reset_lr_on_promotion = reset_lr_on_promotion
+        self.min_steps_before_demote = min_steps_before_demote
         self.demote_below = demote_below
         self.demote_after_checks = demote_after_checks
         self.level_budget_fraction = level_budget_fraction
         self.delivery_history = deque(maxlen=window_size)
+        self.fraction_history = deque(maxlen=window_size)
         self._bad_checks = 0
         self._level_started_at = 0
 
@@ -147,14 +150,11 @@ class CurriculumCallback(BaseCallback):
               f"Level {current} -> {new} "
               f"({TRAINING_CURRICULUM[current]} -> {cartons} cartons)\n")
         self.training_env.set_attr("difficulty_level", new)
-        # The line that makes a level change real. Until 2026-08-31 only
-        # `difficulty_level` was set, which the world stores and never reads.
         self.training_env.set_attr("num_cartons", cartons)
-        # The cap has to move with it, or the level is handed a budget sized for a
-        # different one. Both take effect at the next reset.
         self.training_env.set_attr("max_steps", max_steps_for(cartons))
 
         self.delivery_history.clear()
+        self.fraction_history.clear()
         self._bad_checks = 0
         self._level_started_at = self.num_timesteps
 
@@ -164,29 +164,31 @@ class CurriculumCallback(BaseCallback):
             print(f"[Curriculum] Learning rate schedule restarted at {self.initial_lr:.0e}")
 
     def _on_step(self) -> bool:
-        # Record the outcome of every env that finished this step. Pair each `done` with
-        # ITS OWN env's reward and info - indexing rewards[0] inside this loop credited
-        # env 0's outcome to every worker.
         dones = self.locals["dones"]
         infos = self.locals.get("infos") or [{}] * len(dones)
         for done, reward, info in zip(dones, self.locals["rewards"], infos):
             if done:
                 self.delivery_history.append(1 if _episode_succeeded(info, reward) else 0)
+                if isinstance(info, dict) and "delivered" in info and "active_cartons" in info:
+                    act = max(1, int(info["active_cartons"]))
+                    self.fraction_history.append(float(info["delivered"]) / act)
 
         if self.n_calls % self.check_freq != 0:
             return True
 
         current = self.training_env.get_attr("difficulty_level")[0]
+        steps_at_level = self.num_timesteps - self._level_started_at
         self.logger.record("curriculum/difficulty_level", current)
         self.logger.record("curriculum/target_cartons", TRAINING_CURRICULUM[current])
-        self.logger.record("curriculum/steps_at_level",
-                           self.num_timesteps - self._level_started_at)
+        self.logger.record("curriculum/steps_at_level", steps_at_level)
 
         if len(self.delivery_history) < self.window_size:
             return True
 
         success_rate = sum(self.delivery_history) / len(self.delivery_history)
+        avg_fraction = sum(self.fraction_history) / len(self.fraction_history) if self.fraction_history else 0.0
         self.logger.record("curriculum/success_rate", success_rate)
+        self.logger.record("curriculum/avg_delivered_fraction", avg_fraction)
 
         # -- promote ---------------------------------------------------------------
         if success_rate >= self.target_success_rate and current < MAX_TRAINING_LEVEL:
@@ -195,29 +197,21 @@ class CurriculumCallback(BaseCallback):
                                f"{self.target_success_rate*100:.0f}%")
             return True
 
-        # -- demote ----------------------------------------------------------------
-        # The ladder was one-way until 2026-09-03, and that cost a whole run: nocomm2
-        # promoted to 4 cartons at 3.6M, never solved a single episode again, and had no
-        # route back over the remaining 16.4M steps. Worse, it did not merely fail to
-        # learn the harder level - it LOST the easier one, dropping from ~55% at 2
-        # cartons to 0/10 by the end. Training against an all-zero success signal is not
-        # neutral.
-        #
-        # Two independent triggers, because they catch different failures: a level that
-        # is hopeless from the start, and one that looks survivable but never converges.
-        if current > 1:
-            hopeless = success_rate < self.demote_below
+        # -- demote (only evaluated after the warm-up grace period) -----------------
+        if current > 1 and steps_at_level >= self.min_steps_before_demote:
+            # If the agent is delivering partial cartons (e.g. >20% fraction), it is
+            # actively making progress and should not be considered hopeless.
+            hopeless = (success_rate < self.demote_below) and (avg_fraction < 0.20)
             self._bad_checks = self._bad_checks + 1 if hopeless else 0
 
-            budget = self.level_budget_fraction * getattr(
-                self.model, "_total_timesteps", 0)
-            stalled = budget > 0 and (self.num_timesteps - self._level_started_at) > budget
+            budget = self.level_budget_fraction * getattr(self.model, "_total_timesteps", 0)
+            stalled = budget > 0 and steps_at_level > budget
 
             if self._bad_checks >= self.demote_after_checks:
                 self._change_level(current, current - 1,
-                                   f"Success {success_rate*100:.1f}% < "
-                                   f"{self.demote_below*100:.0f}% for "
-                                   f"{self._bad_checks} checks - DEMOTING")
+                                   f"Success {success_rate*100:.1f}% < {self.demote_below*100:.0f}% "
+                                   f"and delivered fraction {avg_fraction*100:.1f}% < 20% for "
+                                   f"{self._bad_checks} checks after {steps_at_level:,} steps - DEMOTING")
             elif stalled:
                 self._change_level(current, current - 1,
                                    f"{self.level_budget_fraction:.0%} of the run spent "

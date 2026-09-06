@@ -119,6 +119,8 @@ def main():
     parser.add_argument("--comms", action="store_true", help="Enable 16-token discrete broadcast channel")
     parser.add_argument("--msg-dropout", type=float, default=MSG_DROPOUT_DEFAULT, help="Per-link communication dropout fraction")
     parser.add_argument("--checkpoint-every", type=int, default=25_000, help="Checkpoint save interval in robot-steps")
+    parser.add_argument("--min-steps-before-demote", type=int, default=400_000, help="Grace period steps at a level before demotion check")
+    parser.add_argument("--init-from", type=str, default=None, help="Path to checkpoint zip to warm-start policy weights")
     parser.add_argument("--smoke", action="store_true", help="Run quick 4,096 step pipeline check")
 
     args = parser.parse_args()
@@ -152,12 +154,13 @@ def main():
     print(f"  run name     : {run_name}")
     print(f"  worlds       : {worlds} parallel ({slots} policy slots, {NUM_AGENTS} bots/world)")
     print(f"  timesteps    : {args.timesteps:,} robot-steps (~{args.timesteps // slots:,} world-steps)")
-    print(f"  starting box : {args.num_cartons} carton(s)")
+    print(f"  starting box : {args.num_cartons} carton(s) (difficulty {args.difficulty})")
     print(f"  curriculum   : {'ENABLED (1 -> 2 -> 3 -> 4 -> 8 -> 12)' if args.curriculum else 'disabled'}")
     print(f"  shaping      : {'OFF (sparse reward)' if args.no_shaping else f'ON (scale {args.shaping_scale})'}")
     print(f"  comms        : {'ON (16 tokens)' if args.comms else 'off (silent)'}")
     print(f"  extractor    : HiveMindExtractor (1D CNN + Modular Self/Teammates/Cartons/Comms)")
     print(f"  device       : {device}")
+    print(f"  init from    : {args.init_from or 'none (scratch)'}")
     print(f"  tensorboard  : {'logging to tensorboard_logs/' if has_tb else 'disabled (tensorboard not installed)'}")
     print(f"  checkpoints  : every {args.checkpoint_every:,} steps to models/checkpoints/{run_name}/")
     print("=" * 80, flush=True)
@@ -199,6 +202,7 @@ def main():
                 target_success_rate=args.curriculum_threshold,
                 window_size=500,
                 reset_lr_on_promotion=False,
+                min_steps_before_demote=args.min_steps_before_demote,
                 verbose=1,
             )
         )
@@ -222,6 +226,12 @@ def main():
         device=device,
         seed=args.seed,
     )
+
+    if args.init_from:
+        print(f"\n[Warm-Start] Loading policy weights from: {args.init_from}")
+        src = PPO.load(args.init_from, device=device)
+        model.policy.load_state_dict(src.policy.state_dict())
+        print("[Warm-Start] Policy weights successfully loaded!\n")
 
     print(f"\nStarting training on {device}...", flush=True)
     try:
