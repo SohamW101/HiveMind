@@ -116,8 +116,14 @@
    - Restored `hivemind_env/vec_env.py` and `hivemind_env/subproc_vec_env.py` for parallel multi-agent parameter sharing.
    - Restored `hivemind_env/training.py` with `CurriculumCallback` (starts at 1 carton, walks 1 -> 2 -> 3 -> 4 -> 8 -> 12), with `reset_lr_on_promotion=False` to eliminate destructive sawtooth LR spikes.
    - Validated end-to-end with smoke test (`train.py --smoke`).
-4. **[PENDING] Missing Evaluation & Baseline Scoring**:
-   - `scripts/run_evaluation.py` is needed to evaluate trained checkpoints against the 97-step greedy baseline.
+4. **[RESOLVED] Evaluation Tooling & Greedy Baseline Restored**:
+   - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
+   - Fixed cardinal Manhattan distance bug (`abs(dr) + abs(dc) == 1`) in `GreedyController` to match `env.py`'s `INTERACTION_DISTANCE_CELLS = 1` contract (diagonal reach was previously causing greedy pickup/drop lockups).
+   - Validated greedy baseline: 4 cartons completed in 33 steps (100% completion).
+5. **[ACTIVE] Full 10M-Step Training Running in Remote tmux Session**:
+   - Run Name: `v2_curriculum` (10,000,000 steps, 8 parallel worlds = 32 agents, 570+ FPS).
+   - Host: `raid@10.36.16.97` in `~/hivemind/HiveMind`.
+   - Tmux Session: `training` (Window 0: `v2_train`, Window 1: `tensorboard` on port 6006).
 
 ---
 
@@ -135,27 +141,41 @@
 - [x] **Step 3: Implement Clean Training Pipeline (`train.py`)**
   - Implemented `train.py` with `HiveMindExtractor`, subproc vectorization, and stable curriculum.
   - Smoke test ran 4,096 steps and completed without error.
-- [ ] **Step 4: Restore Evaluation Tooling**
-  - Restore/adapt a greedy baseline evaluator and policy evaluator to compute makespan, collision rates, and completion percentages.
-- [ ] **Step 5: Test & Launch on Server**
-  - Push updated code to `server:multi-agent-v2`.
-  - Run a smoke test on the server.
-  - Start the 5M-step curriculum run in a tmux session and monitor rollout metrics.
+- [x] **Step 4: Restore Evaluation Tooling**
+  - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
+  - Corrected cardinal Manhattan interaction distance in greedy controller; verified 100% completion on 4 cartons (makespan 33).
+- [x] **Step 5: Launch Full Training on Server**
+  - Terminated legacy/stalled run from Het's un-versioned directory.
+  - Synchronized latest commit `3440302` to server `~/hivemind/HiveMind`.
+  - Started 10M-step curriculum run in tmux session `training:v2_train` at ~570 FPS on CUDA.
+  - Started TensorBoard in `training:tensorboard` monitoring `tensorboard_logs` on port 6006.
+- [ ] **Step 6: Monitor Convergence & Promotion Milestones**
+  - Monitor curriculum progression: $1 \rightarrow 2 \rightarrow 3 \rightarrow 4 \rightarrow 8 \rightarrow 12$.
+  - Periodically evaluate saved checkpoints in `models/checkpoints/v2_curriculum/` against greedy makespan (97 steps).
 
 ---
 
 ## 8. Essential Commands Reference
 
 ```bash
-# Run environment verification
-/home/taksh/miniconda3/envs/hivemind/bin/python verify_environment.py
+# Attach to active training session on server
+ssh -t raid@10.36.16.97 "tmux attach -t training"
 
-# Push changes from local to remote server
-git push server multi-agent-v2
+# Switch windows inside tmux:
+#   Ctrl+b then 0 -> Training terminal (v2_train)
+#   Ctrl+b then 1 -> Tensorboard terminal
 
-# Run command on server via SSH
-ssh raid@10.36.16.97 "cd ~/hivemind/HiveMind && .venv/bin/python verify_environment.py"
+# View live training logs on server
+ssh raid@10.36.16.97 "tmux capture-pane -t training:v2_train -p -S -30"
 
 # Monitor server GPU / CPU
 ssh raid@10.36.16.97 "nvidia-smi"
+
+# View TensorBoard via SSH tunnel:
+ssh -L 6006:localhost:6006 raid@10.36.16.97
+# Then open http://localhost:6006 in local browser
+
+# Evaluate a checkpoint against greedy baseline
+PYTHONPATH=. /home/taksh/miniconda3/envs/hivemind/bin/python scripts/run_evaluation.py --model models/checkpoints/v2_curriculum/ckpt_100000_steps.zip --episodes 10
 ```
+
