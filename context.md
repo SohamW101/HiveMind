@@ -120,19 +120,16 @@
    - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
    - Fixed cardinal Manhattan distance bug (`abs(dr) + abs(dc) == 1`) in `GreedyController` to match `env.py`'s `INTERACTION_DISTANCE_CELLS = 1` contract (diagonal reach was previously causing greedy pickup/drop lockups).
    - Validated greedy baseline: 4 cartons completed in 33 steps (100% completion).
-5. **[ACTIVE] Both Runs Executing in Parallel on Remote Server (`raid@10.36.16.97`)**:
-   - **Het's Run**:
-     - Workspace: `/home/raid/Het`
-     - Command: `python train.py --run-name main --num-cartons 1 --curriculum --timesteps 10000000 --worlds 8 --checkpoint-every 25000`
-     - Tmux Session: `training` (Window 0: `train`, Window 1: `tensorboard` on port `6006`)
-     - Checkpoints: preserved in `/home/raid/Het/models/main/`
-   - **v2 Improved Run (`multi-agent-v2`)**:
-     - Workspace: `/home/raid/hivemind/HiveMind`
-     - Architecture: `HiveMindExtractor` (1D CNN + Modular Self/Teammates/Cartons/Comms)
-     - Command: `~/train_env/bin/python -u train.py --run-name v2_curriculum --num-cartons 1 --curriculum --timesteps 10000000 --worlds 8 --checkpoint-every 25000`
-     - Tmux Session: `v2_training` (Window 0: `train`, Window 1: `tensorboard` on port `6007`)
-     - Logs: `tensorboard_logs/` (port 6007), checkpoints in `models/checkpoints/v2_curriculum/`
-   - **Hardware Utilization**: 64 CPU cores, ~16 active across both runs. RTX A5000 (24GB VRAM, ~1.3GB in use). Both run simultaneously at full speed.
+5. **[RESOLVED] Curriculum Thrashing & Anti-Demotion Safeguards**:
+   - Diagnosed root cause of 6M–10M oscillation: `demote_after_checks = 4` (4,000 steps) was prematurely declaring newly promoted levels "hopeless" before the policy could explore multi-robot coordination.
+   - Added **400,000-step grace period** (`min_steps_before_demote = 400_000`) before demotion checks can evaluate.
+   - Added **fraction-aware protection** (`avg_fraction >= 0.20` prevents demotion if agents are delivering partial cartons).
+   - Added `--init-from` support to warm-start policy weights from proven checkpoints.
+6. **[ACTIVE] `v2_curriculum_fixed` Training Run in Remote tmux Session**:
+   - Run Name: `v2_curriculum_fixed` (10,000,000 timesteps, 8 worlds / 32 slots on RTX A5000).
+   - Warm-started from `ckpt_5998080_steps.zip` (mastery of 1 & 2 cartons at >80% success), starting at 2 cartons to immediately advance to 3, 4, 8, 12 cartons without thrashing.
+   - Tmux Session: `v2_training` (Window 0: `train`, Window 1: `tensorboard` on port 6007).
+   - Het's independent session `training` remains completely untouched on port 6006.
 
 ---
 
@@ -153,12 +150,12 @@
 - [x] **Step 4: Restore Evaluation Tooling**
   - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
   - Corrected cardinal Manhattan interaction distance in greedy controller; verified 100% completion on 4 cartons (makespan 33).
-- [x] **Step 5: Setup Parallel Runs in Separate Tmux Sessions**
-  - Restored Het's run and TensorBoard in `training` tmux session (`/home/raid/Het`, port 6006).
-  - Launched `v2_curriculum` and TensorBoard in dedicated `v2_training` tmux session (`~/hivemind/HiveMind`, port 6007).
+- [x] **Step 5: Resolve Curriculum Thrashing & Relaunch**
+  - Fixed premature demotion with a 400k-step grace period and partial delivery fraction tracking.
+  - Warm-started `v2_curriculum_fixed` from the converged 2-carton checkpoint (`ckpt_5998080_steps.zip`) into tmux session `v2_training`.
 - [ ] **Step 6: Monitor Convergence & Comparative Milestones**
-  - Monitor curriculum progression: $1 \rightarrow 2 \rightarrow 3 \rightarrow 4 \rightarrow 8 \rightarrow 12$.
-  - Periodically evaluate saved checkpoints in `models/checkpoints/v2_curriculum/` against greedy makespan (97 steps).
+  - Monitor curriculum progression: $2 \rightarrow 3 \rightarrow 4 \rightarrow 8 \rightarrow 12$.
+  - Evaluate final checkpoints against greedy baseline makespan (97 steps for 12 cartons).
 
 ---
 
