@@ -120,10 +120,19 @@
    - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
    - Fixed cardinal Manhattan distance bug (`abs(dr) + abs(dc) == 1`) in `GreedyController` to match `env.py`'s `INTERACTION_DISTANCE_CELLS = 1` contract (diagonal reach was previously causing greedy pickup/drop lockups).
    - Validated greedy baseline: 4 cartons completed in 33 steps (100% completion).
-5. **[ACTIVE] Full 10M-Step Training Running in Remote tmux Session**:
-   - Run Name: `v2_curriculum` (10,000,000 steps, 8 parallel worlds = 32 agents, 570+ FPS).
-   - Host: `raid@10.36.16.97` in `~/hivemind/HiveMind`.
-   - Tmux Session: `training` (Window 0: `v2_train`, Window 1: `tensorboard` on port 6006).
+5. **[ACTIVE] Both Runs Executing in Parallel on Remote Server (`raid@10.36.16.97`)**:
+   - **Het's Run**:
+     - Workspace: `/home/raid/Het`
+     - Command: `python train.py --run-name main --num-cartons 1 --curriculum --timesteps 10000000 --worlds 8 --checkpoint-every 25000`
+     - Tmux Session: `training` (Window 0: `train`, Window 1: `tensorboard` on port `6006`)
+     - Checkpoints: preserved in `/home/raid/Het/models/main/`
+   - **v2 Improved Run (`multi-agent-v2`)**:
+     - Workspace: `/home/raid/hivemind/HiveMind`
+     - Architecture: `HiveMindExtractor` (1D CNN + Modular Self/Teammates/Cartons/Comms)
+     - Command: `~/train_env/bin/python -u train.py --run-name v2_curriculum --num-cartons 1 --curriculum --timesteps 10000000 --worlds 8 --checkpoint-every 25000`
+     - Tmux Session: `v2_training` (Window 0: `train`, Window 1: `tensorboard` on port `6007`)
+     - Logs: `tensorboard_logs/` (port 6007), checkpoints in `models/checkpoints/v2_curriculum/`
+   - **Hardware Utilization**: 64 CPU cores, ~16 active across both runs. RTX A5000 (24GB VRAM, ~1.3GB in use). Both run simultaneously at full speed.
 
 ---
 
@@ -144,12 +153,10 @@
 - [x] **Step 4: Restore Evaluation Tooling**
   - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
   - Corrected cardinal Manhattan interaction distance in greedy controller; verified 100% completion on 4 cartons (makespan 33).
-- [x] **Step 5: Launch Full Training on Server**
-  - Terminated legacy/stalled run from Het's un-versioned directory.
-  - Synchronized latest commit `3440302` to server `~/hivemind/HiveMind`.
-  - Started 10M-step curriculum run in tmux session `training:v2_train` at ~570 FPS on CUDA.
-  - Started TensorBoard in `training:tensorboard` monitoring `tensorboard_logs` on port 6006.
-- [ ] **Step 6: Monitor Convergence & Promotion Milestones**
+- [x] **Step 5: Setup Parallel Runs in Separate Tmux Sessions**
+  - Restored Het's run and TensorBoard in `training` tmux session (`/home/raid/Het`, port 6006).
+  - Launched `v2_curriculum` and TensorBoard in dedicated `v2_training` tmux session (`~/hivemind/HiveMind`, port 6007).
+- [ ] **Step 6: Monitor Convergence & Comparative Milestones**
   - Monitor curriculum progression: $1 \rightarrow 2 \rightarrow 3 \rightarrow 4 \rightarrow 8 \rightarrow 12$.
   - Periodically evaluate saved checkpoints in `models/checkpoints/v2_curriculum/` against greedy makespan (97 steps).
 
@@ -158,24 +165,21 @@
 ## 8. Essential Commands Reference
 
 ```bash
-# Attach to active training session on server
+# --- Het's Training Session ---
 ssh -t raid@10.36.16.97 "tmux attach -t training"
-
-# Switch windows inside tmux:
-#   Ctrl+b then 0 -> Training terminal (v2_train)
-#   Ctrl+b then 1 -> Tensorboard terminal
-
-# View live training logs on server
-ssh raid@10.36.16.97 "tmux capture-pane -t training:v2_train -p -S -30"
-
-# Monitor server GPU / CPU
-ssh raid@10.36.16.97 "nvidia-smi"
-
-# View TensorBoard via SSH tunnel:
+# View Het's live logs:
+ssh raid@10.36.16.97 "tmux capture-pane -t training:train -p -S -20"
+# Forward Het's TensorBoard (port 6006):
 ssh -L 6006:localhost:6006 raid@10.36.16.97
-# Then open http://localhost:6006 in local browser
 
-# Evaluate a checkpoint against greedy baseline
-PYTHONPATH=. /home/taksh/miniconda3/envs/hivemind/bin/python scripts/run_evaluation.py --model models/checkpoints/v2_curriculum/ckpt_100000_steps.zip --episodes 10
+# --- v2 Training Session ---
+ssh -t raid@10.36.16.97 "tmux attach -t v2_training"
+# View v2 live logs:
+ssh raid@10.36.16.97 "tmux capture-pane -t v2_training:train -p -S -30"
+# Forward v2 TensorBoard (port 6007):
+ssh -L 6007:localhost:6007 raid@10.36.16.97
+
+# --- Hardware Monitor ---
+ssh raid@10.36.16.97 "nvidia-smi"
 ```
 
