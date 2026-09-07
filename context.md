@@ -150,12 +150,16 @@
 - [x] **Step 4: Restore Evaluation Tooling**
   - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
   - Corrected cardinal Manhattan interaction distance in greedy controller; verified 100% completion on 4 cartons (makespan 33).
-- [x] **Step 5: Resolve Curriculum Thrashing & Relaunch**
-  - Fixed premature demotion with a 400k-step grace period and partial delivery fraction tracking.
-  - Warm-started `v2_curriculum_fixed` from the converged 2-carton checkpoint (`ckpt_5998080_steps.zip`) into tmux session `v2_training`.
-- [ ] **Step 6: Monitor Convergence & Comparative Milestones**
-  - Monitor curriculum progression: $2 \rightarrow 3 \rightarrow 4 \rightarrow 8 \rightarrow 12$.
-  - Evaluate final checkpoints against greedy baseline makespan (97 steps for 12 cartons).
+- [x] **Step 5: Resolve Curriculum Thrashing & Multi-Trip Bottleneck**
+  - Diagnosed zero success-rate drops: binary `is_success` conjunction read 0.00 even when 63% of cartons were delivered, causing timeout demotions and thrashing.
+  - Implemented delivered-fraction promotion (`target_fraction=0.75` or `success_rate >= 0.70`) and demotion protection whenever `avg_fraction >= 0.40`.
+  - Diagnosed >1 carton/bot bottleneck: `_potential` had a held-carton attractor bug where empty robots were paid to chase teammates carrying cartons, creating depot deadlocks. Fixed to flat gradient $d\_cells = 0.0$ when all active cartons are held.
+  - Minimal hardcoding guarantee: zero heuristic overrides or waypoints; purely principled RL potential shaping and smooth curriculum.
+  - Kept communication non-emergent (`comms=False`) per user directive.
+- [ ] **Step 6: Launch & Monitor Smooth Curriculum Run**
+  - Relaunch `v2_smooth_curriculum` in tmux session `v2_training` on server.
+  - Track progression across 1 -> 2 -> 3 -> 4 -> 8 -> 12 cartons.
+  - Evaluate checkpoints against greedy baseline makespan (97 steps for 12 cartons).
 
 ---
 

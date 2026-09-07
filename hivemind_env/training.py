@@ -121,6 +121,7 @@ class CurriculumCallback(BaseCallback):
         initial_lr: float,
         check_freq: int = 1000,
         target_success_rate: float = 0.70,
+        target_fraction: float = 0.75,
         window_size: int = 500,
         reset_lr_on_promotion: bool = False,
         min_steps_before_demote: int = 400_000,
@@ -133,6 +134,7 @@ class CurriculumCallback(BaseCallback):
         self.initial_lr = initial_lr
         self.check_freq = check_freq
         self.target_success_rate = target_success_rate
+        self.target_fraction = target_fraction
         self.window_size = window_size
         self.reset_lr_on_promotion = reset_lr_on_promotion
         self.min_steps_before_demote = min_steps_before_demote
@@ -191,31 +193,38 @@ class CurriculumCallback(BaseCallback):
         self.logger.record("curriculum/avg_delivered_fraction", avg_fraction)
 
         # -- promote ---------------------------------------------------------------
-        if success_rate >= self.target_success_rate and current < MAX_TRAINING_LEVEL:
-            self._change_level(current, current + 1,
-                               f"Success {success_rate*100:.1f}% >= "
-                               f"{self.target_success_rate*100:.0f}%")
+        can_promote = (
+            success_rate >= self.target_success_rate
+            or avg_fraction >= self.target_fraction
+        )
+        if can_promote and current < MAX_TRAINING_LEVEL:
+            reason = (
+                f"Success {success_rate*100:.1f}% >= {self.target_success_rate*100:.0f}%"
+                if success_rate >= self.target_success_rate
+                else f"Delivered fraction {avg_fraction*100:.1f}% >= {self.target_fraction*100:.0f}%"
+            )
+            self._change_level(current, current + 1, reason)
             return True
 
         # -- demote (only evaluated after the warm-up grace period) -----------------
         if current > 1 and steps_at_level >= self.min_steps_before_demote:
-            # If the agent is delivering partial cartons (e.g. >20% fraction), it is
+            # If the agent is delivering partial cartons (e.g. >= 35% fraction), it is
             # actively making progress and should not be considered hopeless.
-            hopeless = (success_rate < self.demote_below) and (avg_fraction < 0.20)
+            hopeless = (success_rate < self.demote_below) and (avg_fraction < 0.25)
             self._bad_checks = self._bad_checks + 1 if hopeless else 0
 
             budget = self.level_budget_fraction * getattr(self.model, "_total_timesteps", 0)
-            stalled = budget > 0 and steps_at_level > budget
+            stalled = budget > 0 and steps_at_level > budget and avg_fraction < 0.40
 
             if self._bad_checks >= self.demote_after_checks:
                 self._change_level(current, current - 1,
                                    f"Success {success_rate*100:.1f}% < {self.demote_below*100:.0f}% "
-                                   f"and delivered fraction {avg_fraction*100:.1f}% < 20% for "
+                                   f"and delivered fraction {avg_fraction*100:.1f}% < 25% for "
                                    f"{self._bad_checks} checks after {steps_at_level:,} steps - DEMOTING")
             elif stalled:
                 self._change_level(current, current - 1,
                                    f"{self.level_budget_fraction:.0%} of the run spent "
-                                   f"at this level without promotion - DEMOTING")
+                                   f"at this level without promotion (delivered fraction {avg_fraction*100:.1f}% < 40%) - DEMOTING")
 
         return True
 

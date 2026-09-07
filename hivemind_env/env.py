@@ -1596,20 +1596,19 @@ class HiveMindMultiAgentEnv(gym.Env):
             d_cells = cells_to(dep)
             handoff = 0.0
         else:
-            # Prefer a carton nobody is holding; fall back to any undelivered one so a
-            # robot with nothing to claim still has somewhere to be. See defect 2.
-            free_best = held_best = None
+            # Seek the nearest unheld carton still on the warehouse floor.
+            # If all remaining active cartons are already held by teammates, do NOT attract
+            # empty robots to teammates (which causes head-on depot blocking collisions).
+            # Instead, flat d_cells = 0.0 allows them to yield, wait, or disperse freely.
+            free_best = None
             for slot, rid in enumerate(self.all_resource_ids):
                 if slot >= self.active_cartons or self.delivered[slot]:
                     continue
-                p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
-                d = cells_to(p)
                 if rid in self.resource_ids:
+                    p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+                    d = cells_to(p)
                     free_best = d if free_best is None else min(free_best, d)
-                else:
-                    held_best = d if held_best is None else min(held_best, d)
-            best = free_best if free_best is not None else held_best
-            d_cells = 0.0 if best is None else best
+            d_cells = 0.0 if free_best is None else free_best
             handoff = 0.5
 
         dist_term = 0.5 * min(1.0, d_cells / GEODESIC_MAX_CELLS)

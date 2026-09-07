@@ -110,6 +110,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--curriculum", action="store_true", help="Promote 1 -> 2 -> 3 -> 4 -> 8 -> 12 cartons on success")
     parser.add_argument("--curriculum-threshold", type=float, default=0.70, help="Rolling success rate threshold for promotion")
+    parser.add_argument("--curriculum-fraction", type=float, default=0.75, help="Rolling delivered fraction threshold for promotion")
     parser.add_argument("--num-cartons", type=int, default=1, help="Starting cartons (default: 1)")
     parser.add_argument("--max-steps", type=int, default=None, help="Episode step limit (auto per carton count if omitted)")
     parser.add_argument("--shaping-scale", type=float, default=SHAPING_SCALE_DEFAULT, help="Potential shaping scale (default: 60.0)")
@@ -200,6 +201,7 @@ def main():
                 initial_lr=args.lr,
                 check_freq=1000,
                 target_success_rate=args.curriculum_threshold,
+                target_fraction=args.curriculum_fraction,
                 window_size=500,
                 reset_lr_on_promotion=False,
                 min_steps_before_demote=args.min_steps_before_demote,

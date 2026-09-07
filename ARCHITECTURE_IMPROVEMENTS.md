@@ -1,9 +1,3 @@
-# HiveMind Architecture & Incentive Analysis: Why the Bots Froze and How We Fixed It
-
-This document outlines the diagnosis of our MARL policy's early failure modes and details the architectural improvements implemented on the `multi-agent-v2` branch.
-
----
-
 ## 1. The Core Issue: Why the Robots Were "Frozen in Fear"
 
 When we looked at the training curves, the bots were barely moving—either standing completely still or spinning in place, even on a single carton. This wasn't bad exploration luck; it was simple arithmetic that the policy learned to exploit:
