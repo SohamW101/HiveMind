@@ -59,31 +59,27 @@ MAX_TRAINING_LEVEL = max(TRAINING_CURRICULUM)
 SUCCESS_REWARD_THRESHOLD = 50.0
 
 
-def linear_schedule(initial_value: float) -> Callable[[float], float]:
+def linear_schedule(initial_value: float, min_value: float = 5e-5) -> Callable[[float], float]:
     """
-    Linear learning rate decay from initial_value -> 0.0 over the entire training run.
+    Linear learning rate decay from initial_value -> min_value over the entire training run.
     progress_remaining goes from 1.0 (start) to 0.0 (end).
     """
     def func(progress_remaining: float) -> float:
-        return progress_remaining * initial_value
+        return max(min_value, progress_remaining * initial_value)
     return func
 
 
-def restart_schedule(initial_value: float, progress_at_restart: float) -> Callable[[float], float]:
+def restart_schedule(initial_value: float, progress_at_restart: float, min_value: float = 5e-5) -> Callable[[float], float]:
     """
     Linear decay that returns `initial_value` at the moment of the restart and still
-    reaches 0.0 at the end of the run.
-
-    Reinstalling `linear_schedule(initial_value)` mid-run does nothing at all: SB3 always
-    evaluates the schedule at the globally decreasing `_current_progress_remaining`, so
-    the "reset" schedule is the same function that was already installed. Rescaling by
-    the progress remaining at the restart is what actually lifts the LR back up.
+    reaches min_value at the end of the run.
     """
     if progress_at_restart <= 0.0:
-        return lambda progress_remaining: 0.0
+        return lambda progress_remaining: min_value
 
     def func(progress_remaining: float) -> float:
-        return initial_value * max(0.0, progress_remaining / progress_at_restart)
+        val = initial_value * (progress_remaining / progress_at_restart)
+        return max(min_value, val)
     return func
 
 

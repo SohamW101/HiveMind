@@ -116,7 +116,7 @@ def main():
     parser.add_argument("--shaping-scale", type=float, default=SHAPING_SCALE_DEFAULT, help="Potential shaping scale (default: 60.0)")
     parser.add_argument("--no-shaping", action="store_true", help="Turn off potential reward shaping")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--ent-coef", type=float, default=0.01, help="Entropy bonus coefficient")
+    parser.add_argument("--ent-coef", type=float, default=0.03, help="Entropy bonus coefficient")
     parser.add_argument("--comms", action="store_true", help="Enable 16-token discrete broadcast channel")
     parser.add_argument("--msg-dropout", type=float, default=MSG_DROPOUT_DEFAULT, help="Per-link communication dropout fraction")
     parser.add_argument("--checkpoint-every", type=int, default=25_000, help="Checkpoint save interval in robot-steps")
