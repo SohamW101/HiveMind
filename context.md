@@ -150,16 +150,21 @@
 - [x] **Step 4: Restore Evaluation Tooling**
   - Restored `hivemind_env/greedy.py` and `scripts/run_evaluation.py`.
   - Corrected cardinal Manhattan interaction distance in greedy controller; verified 100% completion on 4 cartons (makespan 33).
-- [x] **Step 5: Resolve Turning Action Starvation & 1M-Step Plateau**
-  - Diagnosed plateau at 1M steps: policy probability for `turnL` and `turnR` collapsed to 0.0000. At 1 & 2 cartons, perimeter runs succeeded without turning, but Carton 3 required entering interior shelf aisles. In addition, East-wall robots spawned facing boundary walls.
-  - Implemented heading-aware geodesic potential: turning towards the next cell on the BFS path reduces `heading_term`, delivering $+0.24$ positive reward instead of negative step penalty.
-  - Set spawn orientation in `reset()` to open cardinal directions facing into the corridors.
-  - Added learning rate floor (`min_value = 5e-5`) so learning never freezes to zero after 5M steps.
-  - Increased `ent_coef` default to 0.03 to maintain healthy exploration over all 7 actions.
-- [ ] **Step 6: Launch Clean Scratch Curriculum Run**
-  - Launch `v2_turn_curriculum` from scratch (`--num-cartons 1 --difficulty 1 --curriculum`) in tmux session `v2_training` on server.
-  - Monitor progression through 1 -> 2 -> 3 -> 4 -> 8 -> 12 cartons.
-  - Evaluate against greedy baseline (97 steps for 12 cartons).
+- [x] **Step 5: Post-Mortem of `v2_turn_curriculum` Collapse & Clean Fix**
+  - Diagnosed why `v2_turn_curriculum` collapsed (stuck at Level 1 with only 20% success over 10M steps):
+    1. The artificial `heading_term` in `_potential` introduced severe local reward traps: moving forward into corner cells (e.g. `(0, 3)`) increased heading error from 0° to 90°, penalizing forward movement and incentivizing turning/spinning in place. `value_loss` spiked from ~40 to 255.
+    2. Randomizing spawn orientation (`corner_open_yaws`) broke initial corridor line-of-sight and created massive collision/timeout variance.
+    3. `ent-coef=0.03` created diffuse action noise, preventing trajectory crystallization.
+  - Clean Resolution:
+    1. Reverted `_potential` back to pure, monotonic geodesic BFS distance with the empty-robot yield fix (no heading distortion).
+    2. Restored deterministic default spawn orientation (`yaw = 0.0`).
+    3. Set `idle_penalises_turning=False` by default in `env.py` so turning on the spot is never penalized as idle.
+    4. Restored `ent-coef=0.01` and set `curriculum-fraction=0.60` (allowing 2/3 deliveries on Level 3 to advance to 4 cartons).
+    5. Preserved `min_value = 5e-5` in `linear_schedule` so policy updates never freeze at 0 learning rate.
+- [ ] **Step 6: Launch Clean Fixed Curriculum Run (`v2_curriculum_resumed`)**
+  - Warm-start from `ckpt_5998080_steps.zip` (mastery of 1 & 2 cartons at >80% success) at difficulty 2.
+  - Run with clean geodesic shaping and `min_value = 5e-5` LR schedule to smoothly progress 2 -> 3 -> 4 -> 8 -> 12 cartons.
+  - Monitor progression in tmux session `v2_training` on server.
 
 ---
 

@@ -504,7 +504,7 @@ class HiveMindMultiAgentEnv(gym.Env):
     arm_lift_carried = 0.38
 
     def __init__(self, render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM,
-                 show_lidar=None, obs_size=None, idle_penalises_turning=True,
+                 show_lidar=None, obs_size=None, idle_penalises_turning=False,
                  lidar_noise=True, substeps=None, max_steps=None,
                  num_cartons=None, shaping=True,
                  shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99,
@@ -758,19 +758,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         import os
         urdf_path = os.path.join(os.path.dirname(__file__), "assets", "diff_drive_bot.urdf")
         
-        # Open cardinal orientations facing into the warehouse corridors from each corner
-        corner_open_yaws = [
-            [0.0, -math.pi / 2.0],        # (0, 0) top-left: East (+X), South (-Y)
-            [-math.pi / 2.0, math.pi],     # (0, 12) top-right: South (-Y), West (-X)
-            [0.0, math.pi / 2.0],         # (12, 0) bottom-left: East (+X), North (+Y)
-            [math.pi, math.pi / 2.0],     # (12, 12) bottom-right: West (-X), North (+Y)
-        ]
-
         for i in range(self.num_agents):
             rx, ry = self._grid_to_world(spawn_cells[i][0], spawn_cells[i][1])
-            spawn_yaw = random.choice(corner_open_yaws[i])
-            orn = pb.getQuaternionFromEuler([0, 0, spawn_yaw])
-            rid = pb.loadURDF(urdf_path, basePosition=[rx, ry, 0.1], baseOrientation=orn, physicsClientId=self.client_id)
+            rid = pb.loadURDF(urdf_path, basePosition=[rx, ry, 0.1], physicsClientId=self.client_id)
             self.robot_ids.append(rid)
             
             state = {
@@ -1580,83 +1570,49 @@ class HiveMindMultiAgentEnv(gym.Env):
         occur; beyond it the gradient is flat, which is the correct behaviour for a
         target that is unreachable.
         """
-        x, y, yaw = self._canonical_pose(agent_idx)
-        robot_cell = self._world_to_grid(x, y)
+        x, y, _ = self._canonical_pose(agent_idx)
         n_left = sum(1 for slot in range(self.active_cartons) if not self.delivered[slot])
+        dist = self._geodesic_from(self._world_to_grid(x, y))
 
-        def resolve_target(world_xy):
-            """Returns (target_cell, d_cells, dist_map)."""
-            raw_target = self._world_to_grid(world_xy[0], world_xy[1])
-            dist = self._geodesic_from(raw_target)
-            d = dist.get(robot_cell)
+        def cells_to(world_xy):
+            """Geodesic cells to a world position; saturated when unreachable."""
+            target = self._world_to_grid(world_xy[0], world_xy[1])
+            d = dist.get(target)
             if d is not None:
-                return raw_target, d, dist
-            # Saturated / unreachable or inside shelf: find nearest enterable neighbour
-            r, c = raw_target
-            neighbours = ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))
-            best_nb = None
-            best_d = GEODESIC_MAX_CELLS
-            best_dist = dist
-            for nb in neighbours:
-                if nb in self.blocked_cells:
-                    continue
-                d_nb_map = self._geodesic_from(nb)
-                d_nb = d_nb_map.get(robot_cell)
-                if d_nb is not None and d_nb < best_d:
-                    best_d = d_nb
-                    best_nb = nb
-                    best_dist = d_nb_map
-            if best_nb is not None:
-                return best_nb, best_d, best_dist
-            return raw_target, GEODESIC_MAX_CELLS, dist
+                return d
+            # A carton shoved inside a shelf is not enterable, so BFS never reaches its
+            # cell. The nearest enterable neighbour is what a robot would actually stand
+            # on to pick it up, and the env's adjacent-cell interaction makes that a real pickup.
+            r, c = target
+            neighbours = [dist.get(n) for n in
+                          ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))]
+            reachable = [n for n in neighbours if n is not None]
+            return min(reachable) if reachable else GEODESIC_MAX_CELLS
 
-        target_dist_map = None
         if self.is_carrying[agent_idx]:
             dep, _ = pb.getBasePositionAndOrientation(
                 self.depot_id, physicsClientId=self.client_id
             )
-            _, d_cells, target_dist_map = resolve_target(dep)
+            d_cells = cells_to(dep)
             handoff = 0.0
         else:
             # Seek the nearest unheld carton still on the warehouse floor.
             # If all remaining active cartons are already held by teammates, do NOT attract
             # empty robots to teammates (which causes head-on depot blocking collisions).
             # Instead, flat d_cells = 0.0 allows them to yield, wait, or disperse freely.
-            best_d = None
+            free_best = None
             for slot, rid in enumerate(self.all_resource_ids):
                 if slot >= self.active_cartons or self.delivered[slot]:
                     continue
                 if rid in self.resource_ids:
                     p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
-                    _, d, d_map = resolve_target(p)
-                    if best_d is None or d < best_d:
-                        best_d = d
-                        target_dist_map = d_map
-            d_cells = 0.0 if best_d is None else best_d
+                    d = cells_to(p)
+                    free_best = d if free_best is None else min(free_best, d)
+            d_cells = 0.0 if free_best is None else free_best
             handoff = 0.5
 
-        # Heading alignment towards the next cell on the geodesic path
-        CARDINAL_MOVES = (
-            ((0, 1), 0.0),            # East: dc=+1, dr=0 (yaw=0)
-            ((-1, 0), math.pi / 2.0), # North: dc=0, dr=-1 (yaw=pi/2)
-            ((0, -1), math.pi),       # West: dc=-1, dr=0 (yaw=pi)
-            ((1, 0), -math.pi / 2.0), # South: dc=0, dr=+1 (yaw=-pi/2)
-        )
-        min_angle_err = math.pi
-        if 0 < d_cells < GEODESIC_MAX_CELLS and target_dist_map is not None:
-            r, c = robot_cell
-            for (dr, dc), desired_yaw in CARDINAL_MOVES:
-                nb = (r + dr, c + dc)
-                if target_dist_map.get(nb) == d_cells - 1:
-                    diff = abs((yaw - desired_yaw + math.pi) % (2.0 * math.pi) - math.pi)
-                    if diff < min_angle_err:
-                        min_angle_err = diff
-        else:
-            min_angle_err = 0.0
-
         dist_term = 0.5 * min(1.0, d_cells / GEODESIC_MAX_CELLS)
-        heading_term = (0.25 / GEODESIC_MAX_CELLS) * (min_angle_err / math.pi)
-        return -(n_left + handoff + dist_term + heading_term)
+        return -(n_left + handoff + dist_term)
 
     def _shaping_reward(self):
         """
