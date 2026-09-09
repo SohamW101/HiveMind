@@ -71,11 +71,37 @@ Instead of one generic linear layer, we divide the 105-dim state into dedicated 
 
 ---
 
-## 4. Next Steps for the Team
+## 4. Discovered Training Pathologies & Physics Fixes
 
-1. **Training Pipeline**:
-   - Wire `HiveMindExtractor` into a streamlined `train.py` using `get_policy_kwargs()`.
-2. **Reward Balance**:
-   - Ensure `shaping_scale` stays at $\ge 60.0$ so the positive gradient for approaching a carton comfortably outweighs the collision risk, giving the robots confidence to move.
-3. **Multi-Agent Evaluation**:
-   - Track `rollout/delivered_fraction` alongside `success_rate` during training so we know when the bots are actively clearing the warehouse.
+### A. Geodesic Potential Shaping & Heading Traps
+- **Multi-Trip Depot Blockade Fix**:
+  - In earlier runs, when remaining active cartons were already picked up by teammates, the potential function attracted empty robots to the held cartons, causing them to swarm and blockade the carrier at the depot doorway.
+  - Fix: When all uncollected cartons are held, empty robots receive a neutral potential gradient (`d_cells = 0.0`), allowing them to yield, disperse, and clear the corridor.
+- **Why Artificial Heading Potentials Broke Training**:
+  - In `v2_turn_curriculum`, an explicit heading term was added to reward facing the next BFS grid cell.
+  - Pathology: Moving forward down a straight corridor into a turning junction (e.g. `(0, 2) -> (0, 3)`) caused the next-waypoint heading error to jump from 0° to 90° *before* the robot could turn. This penalized forward motion, causing value loss to spike to ~250 and trapping robots into spinning or idling.
+  - Fix: Reverted to pure geodesic BFS distance. Without artificial heading terms, forward motion is smoothly rewarded and value loss drops to normal levels (~8-15).
+
+### B. Robot Spawn Orientations
+- Randomizing initial spawn angles (`corner_open_yaws`) caused 50% of robots to spawn facing walls or dead-end outer columns (e.g. Robot 0 driving south down column 0 into the bottom wall).
+- Fix: Restored deterministic default spawn orientations (`yaw = 0.0`, facing East down warehouse corridors), maintaining consistent corridor exploration conditions.
+
+### C. Turning Action Tax
+- By default in the specification, robots turning on the spot have near-zero linear velocity and incurred an idle penalty (`R_IDLE_PENALTY = -0.02`). Combined with step time penalties, taking `turnL` or `turnR` was strictly worse than doing nothing (`stay`).
+- Fix: Set `idle_penalises_turning = False` in `HiveMindMultiAgentEnv`, exempting turns from the idle tax.
+
+### D. Curriculum Anti-Thrashing Safeguards
+- **Grace Period**: Added a 400,000-step grace period (`min_steps_before_demote = 400_000`) before demotion checks can evaluate on newly promoted levels.
+- **Fraction-Aware Protection**: If agents are delivering partial cartons (`avg_delivered_fraction >= 0.25`), the policy is actively learning multi-robot coordination and is protected from premature demotion.
+- **Promotion Threshold**: Set `curriculum_fraction = 0.60` so delivering 2/3 cartons on Level 3 smoothly triggers promotion to 4 cartons.
+- **Learning Rate Floor**: Added `min_value = 5e-5` to `linear_schedule` so policy gradients never freeze to zero after long runs.
+
+---
+
+## 5. Current Verified Training Status
+
+- **Scratch Run Verification (`v2_clean_scratch`)**:
+  - Starting from Level 1 with 1 carton, the policy converged and **promoted to Level 2 (2 cartons)**.
+  - Reached 3.5M steps with delivered fraction climbing to **37.2%**, saving checkpoints every 25k steps (`ckpt_3498880_steps.zip`).
+- **Resumed Run**:
+  - Resumed from `ckpt_3498880_steps.zip` in tmux session `v2_training:0` on the server (`10.36.16.97`) to complete 2 -> 3 -> 4 -> 8 -> 12 carton ladder.
