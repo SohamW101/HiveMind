@@ -1,11 +1,12 @@
+import math
+import random
+import time
+
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pybullet as pb
 import pybullet_data
-import random
-import math
-import time
+from gymnasium import spaces
 
 # =============================================================================
 # OBSERVATION LAYOUT V2 - PINNED AT 105 FLOATS PER ROBOT. READ BEFORE CHANGING.
@@ -169,7 +170,7 @@ LIDAR_START_RADIUS = 0.28
 # fixed (see _spawn_z), but the beam stays on a constant so perception cannot silently
 # depend on chassis dynamics again.
 LIDAR_BEAM_Z = 0.17
-LIDAR_NOISE_SIGMA = 0.01      # metres, constant term
+LIDAR_NOISE_SIGMA = 0.01  # metres, constant term
 LIDAR_NOISE_RANGE_FRAC = 0.01  # plus 1% of the measured range
 
 # WHY THE BEAM SITS AT CHASSIS HEIGHT
@@ -183,10 +184,16 @@ OBS_LIDAR = LIDAR_NUM_RAYS
 
 # Everything the robot observes about the world, before any communication.
 OBS_WORLD_DIM = (
-    OBS_OWN_POSE + OBS_OWN_VELOCITY + OBS_OWN_CARRYING
-    + OBS_OTHER_POSES + OBS_OTHER_CARRYING
-    + OBS_CARTON_STATUS + OBS_CARTON_POSITIONS
-    + OBS_DEPOT_DIRECTION + OBS_ELAPSED_TIME + OBS_LIDAR
+    OBS_OWN_POSE
+    + OBS_OWN_VELOCITY
+    + OBS_OWN_CARRYING
+    + OBS_OTHER_POSES
+    + OBS_OTHER_CARRYING
+    + OBS_CARTON_STATUS
+    + OBS_CARTON_POSITIONS
+    + OBS_DEPOT_DIRECTION
+    + OBS_ELAPSED_TIME
+    + OBS_LIDAR
 )  # 129
 
 # Roadmap step 7: each robot broadcasts MSG_TOKENS values; a robot hears the other
@@ -194,15 +201,15 @@ OBS_WORLD_DIM = (
 MSG_TOKENS = 16
 OBS_MESSAGE_DIM = MSG_TOKENS * (NUM_AGENTS - 1)  # 48
 
-OBS_DIM_V1 = 81    # historical - no carton positions, no LiDAR. Never trained against.
-OBS_DIM_V2 = 105   # historical - carton positions, no LiDAR. Never trained against.
+OBS_DIM_V1 = 81  # historical - no carton positions, no LiDAR. Never trained against.
+OBS_DIM_V2 = 105  # historical - carton positions, no LiDAR. Never trained against.
 OBS_DIM_V3 = OBS_WORLD_DIM + OBS_MESSAGE_DIM  # 177
 DEFAULT_OBS_DIM = OBS_DIM_V3
 _SUPERSEDED_DIMS = {
     OBS_DIM_V1: "V1 (2026-08-28): no carton positions - the observation could not tell "
-                "two warehouse layouts apart",
+    "two warehouse layouts apart",
     OBS_DIM_V2: "V2 (2026-08-28): no LiDAR - added when shelves became solid obstacles, "
-                "which a robot otherwise had no way to perceive",
+    "which a robot otherwise had no way to perceive",
 }
 
 # Carton status values. Evenly spaced across [0, 1] - see the note above about
@@ -290,12 +297,12 @@ R_TIME_PENALTY = -0.05
 R_OWN_PICKUP = 1.0
 R_OWN_DELIVERY = 2.0
 R_IDLE_PENALTY = -0.02
-R_REPLAN_PENALTY = -0.1   # defined by the spec; no trigger exists here (see above)
+R_REPLAN_PENALTY = -0.1  # defined by the spec; no trigger exists here (see above)
 R_INVALID_ACTION = -0.5
 
 # S3.3 split
-SHARED_WEIGHT = 0.90
-INDIVIDUAL_WEIGHT = 0.10
+SHARED_WEIGHT = 0.80
+INDIVIDUAL_WEIGHT = 0.20
 
 # "v < 0.1 m/s" in cells per step. A move covers exactly 1.0 cell/step, so any
 # threshold below 1.0 separates moving from not moving; 0.1 keeps the spec's number.
@@ -405,7 +412,9 @@ if _OBS_TOTAL != OBS_DIM_V3:
         f"against V3 becomes unloadable the moment this number moves."
     )
 if OBS_SLICES["messages"].stop != OBS_DIM_V3:
-    raise AssertionError("Message slots must be last so world features keep stable indices.")
+    raise AssertionError(
+        "Message slots must be last so world features keep stable indices."
+    )
 
 
 def describe_observation_layout():
@@ -413,29 +422,48 @@ def describe_observation_layout():
     The pinned layout as text. Printed by smoke_test.py so the dimension is visible
     in a run log rather than only in this docstring.
     """
-    lines = [f"Observation layout V3 - {OBS_DIM_V3} floats per robot, "
-             f"{NUM_AGENTS} robots -> shape ({NUM_AGENTS}, {OBS_DIM_V3})"]
+    lines = [
+        (f"Observation layout V3 - {OBS_DIM_V3} floats per robot, "
+        f"{NUM_AGENTS} robots -> shape ({NUM_AGENTS}, {OBS_DIM_V3})")
+    ]
     for name, sl in OBS_SLICES.items():
         note = " (zeros in v3)" if name == "messages" else ""
         if name == "lidar":
             note = f" ({LIDAR_NUM_RAYS} rays, 270 deg, {LIDAR_MAX_RANGE} m)"
-        lines.append(f"  [{sl.start:3d}:{sl.stop:3d}]  {sl.stop - sl.start:2d}  {name}{note}")
-    lines.append(f"  world features: {OBS_WORLD_DIM}   message slots: {OBS_MESSAGE_DIM}")
+        lines.append(
+            f"  [{sl.start:3d}:{sl.stop:3d}]  {sl.stop - sl.start:2d}  {name}{note}"
+        )
+    lines.append(
+        f"  world features: {OBS_WORLD_DIM}   message slots: {OBS_MESSAGE_DIM}"
+    )
     return "\n".join(lines)
 
 
 class HiveMindMultiAgentEnv(gym.Env):
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}  # noqa: RUF012
     carton_size = 0.5
     gripper_reach = 0.3
     lidar_initial_height = 0.0
     lidar_carry_height = 0.5
 
-    def __init__(self, render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM,
-                 show_lidar=None, obs_size=None, idle_penalises_turning=True,
-                 lidar_noise=True, substeps=None, max_steps=None,
-                 num_cartons=None, shaping=True,
-                 shaping_scale=SHAPING_SCALE_DEFAULT, gamma=0.99):
+    def __init__(
+        self,
+        render_mode=None,
+        difficulty_level=1,
+        obs_dim=DEFAULT_OBS_DIM,
+        show_lidar=None,
+        obs_size=None,
+        idle_penalises_turning=False,
+        lidar_noise=True,
+        substeps=None,
+        max_steps=None,
+        num_cartons=None,
+        shaping=True,
+        shaping_scale=SHAPING_SCALE_DEFAULT,
+        gamma=0.99,
+        communication=False,
+        comm_encoding="multi",
+    ):
         super().__init__()
 
         # How many of the NUM_CARTONS slots actually carry a carton this episode.
@@ -455,6 +483,11 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.shaping = shaping
         self.shaping_scale = float(shaping_scale)
         self.gamma = float(gamma)
+        # Emergent communication (roadmap step 7). When True, each robot selects a
+        # discrete token alongside its movement action, and the token is written into
+        # the observation's reserved message slots as a one-hot vector.
+        self.communication = bool(communication)
+        self.comm_encoding = str(comm_encoding)  # "multi" or "merged"
         # Physics substeps per environment step: a one-cell move is executed by
         # teleporting the robot across this many resetBasePositionAndOrientation +
         # stepSimulation pairs.
@@ -520,12 +553,25 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.obs_dim = obs_dim
 
         # Actions: 0: Forward, 1: Backward, 2: Turn Left, 3: Turn Right, 4: Pick Up, 5: Drop Off, 6: Stay
-        self.action_space = spaces.MultiDiscrete([7] * self.num_agents)
+        if self.communication:
+            if self.comm_encoding == "multi":
+                # Each robot outputs [movement_action, message_token]
+                self.action_space = spaces.MultiDiscrete(
+                    [7, MSG_TOKENS] * self.num_agents
+                )
+            else:  # merged
+                # Single integer encodes both: action = movement * MSG_TOKENS + token
+                self.action_space = spaces.MultiDiscrete(
+                    [7 * MSG_TOKENS] * self.num_agents
+                )
+        else:
+            self.action_space = spaces.MultiDiscrete([7] * self.num_agents)
 
         # One row per robot. Everything is normalised into [-1, 1] so the bounds are
         # honest rather than +/-inf placeholders; _get_obs clips to enforce them.
         self.observation_space = spaces.Box(
-            low=-1.0, high=1.0,
+            low=-1.0,
+            high=1.0,
             shape=(self.num_agents, self.obs_dim),
             dtype=np.float32,
         )
@@ -539,9 +585,11 @@ class HiveMindMultiAgentEnv(gym.Env):
             self.client_id = pb.connect(pb.GUI)
         else:
             self.client_id = pb.connect(pb.DIRECT)
-            
-        pb.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client_id)
-        
+
+        pb.setAdditionalSearchPath(
+            pybullet_data.getDataPath(), physicsClientId=self.client_id
+        )
+
         self.robot_ids = []
         self.resource_ids = []
         self.depot_id = None
@@ -566,18 +614,19 @@ class HiveMindMultiAgentEnv(gym.Env):
         # in 24 steps, and each of those wasted steps is another chance to collide.
         # MAX_STEPS_BY_CARTONS keeps roughly 3x headroom at each curriculum level; pass
         # max_steps explicitly to override it.
-        self.max_steps = int(max_steps) if max_steps is not None \
-            else max_steps_for(self.num_cartons)
+        self.max_steps = (
+            int(max_steps) if max_steps is not None else max_steps_for(self.num_cartons)
+        )
         self.current_step = 0
 
     def _grid_to_world(self, r, c):
-        x = (c - self.grid_size/2.0) * self.cell_size + (self.cell_size/2.0)
-        y = (self.grid_size/2.0 - r) * self.cell_size - (self.cell_size/2.0)
+        x = (c - self.grid_size / 2.0) * self.cell_size + (self.cell_size / 2.0)
+        y = (self.grid_size / 2.0 - r) * self.cell_size - (self.cell_size / 2.0)
         return x, y
-        
+
     def _world_to_grid(self, x, y):
-        c = int(round((x / self.cell_size) + self.grid_size/2.0 - 0.5))
-        r = int(round(self.grid_size/2.0 - (y / self.cell_size) - 0.5))
+        c = round((x / self.cell_size) + self.grid_size / 2.0 - 0.5)
+        r = round(self.grid_size / 2.0 - (y / self.cell_size) - 0.5)
         return r, c
 
     def reset(self, seed=None, options=None):
@@ -585,7 +634,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         if seed is not None:
             random.seed(seed)
             np.random.seed(seed)
-            
+
         self.is_carrying = [False] * self.num_agents
         self.carried_resource_ids = [None] * self.num_agents
         self.current_step = 0
@@ -596,8 +645,8 @@ class HiveMindMultiAgentEnv(gym.Env):
         # play_multi.py reads it that way, so its meaning must not change. The
         # observation needs something different: a stable slot per carton that survives
         # pickup and delivery, so carton 7 is always index 7 for the whole episode.
-        self.all_resource_ids = []          # fixed order, length NUM_CARTONS
-        self.resource_slot = {}             # pybullet body id -> observation index
+        self.all_resource_ids = []  # fixed order, length NUM_CARTONS
+        self.resource_slot = {}  # pybullet body id -> observation index
         self.delivered = [False] * NUM_CARTONS
         self._prev_xy = [(0.0, 0.0)] * self.num_agents
         self._velocity = [(0.0, 0.0)] * self.num_agents
@@ -619,7 +668,11 @@ class HiveMindMultiAgentEnv(gym.Env):
         pb.setGravity(0, 0, -9.81, physicsClientId=self.client_id)
 
         # Keep the warehouse floor flush with z=0 for the shelf and carton assets.
-        floor_half_extents = [self.grid_size * self.cell_size / 2.0, self.grid_size * self.cell_size / 2.0, 0.05]
+        floor_half_extents = [
+            self.grid_size * self.cell_size / 2.0,
+            self.grid_size * self.cell_size / 2.0,
+            0.05,
+        ]
         floor_col = pb.createCollisionShape(
             pb.GEOM_BOX,
             halfExtents=floor_half_extents,
@@ -642,58 +695,78 @@ class HiveMindMultiAgentEnv(gym.Env):
         # Depot position (Corner: r=0, c=0)
         self.depot_pos_grid = (0, 0)
         dx, dy = self._grid_to_world(0, 0)
-        depot_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=[self.cell_size*0.5, self.cell_size*0.5, 0.01], rgbaColor=[0, 0, 0, 0.5], physicsClientId=self.client_id)
-        self.depot_id = pb.createMultiBody(baseMass=0, baseVisualShapeIndex=depot_vis, basePosition=[dx, dy, 0.01], physicsClientId=self.client_id)
+        depot_vis = pb.createVisualShape(
+            pb.GEOM_BOX,
+            halfExtents=[self.cell_size * 0.5, self.cell_size * 0.5, 0.01],
+            rgbaColor=[0, 0, 0, 0.5],
+            physicsClientId=self.client_id,
+        )
+        self.depot_id = pb.createMultiBody(
+            baseMass=0,
+            baseVisualShapeIndex=depot_vis,
+            basePosition=[dx, dy, 0.01],
+            physicsClientId=self.client_id,
+        )
 
         # Spawn 4 bots near the depot
         spawn_cells = [(0, 1), (1, 0), (0, 2), (2, 0)]
-        
+
         self.robot_ids = []
         self.agent_state = []
 
         import os
-        urdf_path = os.path.join(os.path.dirname(__file__), "assets", "diff_drive_bot.urdf")
-        
+
+        urdf_path = os.path.join(
+            os.path.dirname(__file__), "assets", "diff_drive_bot.urdf"
+        )
+
         for i in range(self.num_agents):
             rx, ry = self._grid_to_world(spawn_cells[i][0], spawn_cells[i][1])
-            rid = pb.loadURDF(urdf_path, basePosition=[rx, ry, 0.1], physicsClientId=self.client_id)
+            rid = pb.loadURDF(
+                urdf_path, basePosition=[rx, ry, 0.1], physicsClientId=self.client_id
+            )
             self.robot_ids.append(rid)
-            
+
             state = {
-                'left_wheel_indices': [],
-                'right_wheel_indices': [],
-                'arm_yaw_joint_idx': None,
-                'left_finger_joint_idx': None,
-                'right_finger_joint_idx': None,
-                'lidar_joint_idx': None,
-                'current_arm_yaw': 0.0,
-                'current_finger_pos': 0.03,  # Scaled by 2x from original 0.015
-                'current_lidar_height': self.lidar_initial_height
+                "left_wheel_indices": [],
+                "right_wheel_indices": [],
+                "arm_yaw_joint_idx": None,
+                "left_finger_joint_idx": None,
+                "right_finger_joint_idx": None,
+                "lidar_joint_idx": None,
+                "current_arm_yaw": 0.0,
+                "current_finger_pos": 0.03,  # Scaled by 2x from original 0.015
+                "current_lidar_height": self.lidar_initial_height,
             }
-            
+
             for j in range(pb.getNumJoints(rid, physicsClientId=self.client_id)):
                 info = pb.getJointInfo(rid, j, physicsClientId=self.client_id)
                 jname = info[1].decode("utf-8")
                 if "left_wheel" in jname:
-                    state['left_wheel_indices'].append(j)
+                    state["left_wheel_indices"].append(j)
                 elif "right_wheel" in jname:
-                    state['right_wheel_indices'].append(j)
+                    state["right_wheel_indices"].append(j)
                 elif jname == "arm_yaw_joint":
-                    state['arm_yaw_joint_idx'] = j
+                    state["arm_yaw_joint_idx"] = j
                 elif jname == "left_finger_joint":
-                    state['left_finger_joint_idx'] = j
+                    state["left_finger_joint_idx"] = j
                 elif jname == "right_finger_joint":
-                    state['right_finger_joint_idx'] = j
+                    state["right_finger_joint_idx"] = j
                 elif jname == "lidar_joint":
-                    state['lidar_joint_idx'] = j
-                    
+                    state["lidar_joint_idx"] = j
+
             self.agent_state.append(state)
-            self._set_arm_and_lidar_joints(i, state['current_arm_yaw'], state['current_finger_pos'], state['current_lidar_height'])
+            self._set_arm_and_lidar_joints(
+                i,
+                state["current_arm_yaw"],
+                state["current_finger_pos"],
+                state["current_lidar_height"],
+            )
 
         # 13x13 Warehouse Generation
         self.obstacle_ids = []
         self.resource_ids = []
-        
+
         assets_dir = os.path.join(os.path.dirname(__file__), "assets")
         shelf_rows = [1, 3, 5, 7, 9, 11]
         for r in shelf_rows:
@@ -702,39 +775,69 @@ class HiveMindMultiAgentEnv(gym.Env):
             x = cuts[0]
             y = cuts[1] - cuts[0]
             z = 9 - cuts[1]
-            
-            partitions = [
-                (1, x),
-                (x + 2, y),
-                (x + y + 3, z)
-            ]
-            
-            for (start_c, length) in partitions:
-                cx, cy = self._grid_to_world(r, start_c + length/2.0 - 0.5)
+
+            partitions = [(1, x), (x + 2, y), (x + y + 3, z)]
+
+            for start_c, length in partitions:
+                cx, cy = self._grid_to_world(r, start_c + length / 2.0 - 0.5)
                 shelf_urdf_path = os.path.join(assets_dir, f"shelf_{length}m.urdf")
-                obs_id = pb.loadURDF(shelf_urdf_path, basePosition=[cx, cy, 0.0], useFixedBase=True, physicsClientId=self.client_id)
+                obs_id = pb.loadURDF(
+                    shelf_urdf_path,
+                    basePosition=[cx, cy, 0.0],
+                    useFixedBase=True,
+                    physicsClientId=self.client_id,
+                )
                 self.obstacle_ids.append(obs_id)
-            
+
             # Gaps are at c = x + 1 and c = x + y + 2
             for c in [x + 1, x + y + 2]:
                 resx, resy = self._grid_to_world(r, c)
                 carton_urdf_path = os.path.join(assets_dir, "carton.urdf")
-                res_id = pb.loadURDF(carton_urdf_path, basePosition=[resx, resy, 0.0], physicsClientId=self.client_id)
+                res_id = pb.loadURDF(
+                    carton_urdf_path,
+                    basePosition=[resx, resy, 0.0],
+                    physicsClientId=self.client_id,
+                )
                 self.resource_ids.append(res_id)
 
         # Static Boundary Walls around the 13x13 grid
         self.wall_ids = []
         b_size = self.grid_size * self.cell_size / 2.0
-        wall_half_extents = [(b_size + 0.1, 0.1, 0.5), (b_size + 0.1, 0.1, 0.5), (0.1, b_size, 0.5), (0.1, b_size, 0.5)]
-        wall_positions = [(0, b_size + 0.1, 0.5), (0, -b_size - 0.1, 0.5), (-b_size - 0.1, 0, 0.5), (b_size + 0.1, 0, 0.5)]
+        wall_half_extents = [
+            (b_size + 0.1, 0.1, 0.5),
+            (b_size + 0.1, 0.1, 0.5),
+            (0.1, b_size, 0.5),
+            (0.1, b_size, 0.5),
+        ]
+        wall_positions = [
+            (0, b_size + 0.1, 0.5),
+            (0, -b_size - 0.1, 0.5),
+            (-b_size - 0.1, 0, 0.5),
+            (b_size + 0.1, 0, 0.5),
+        ]
         for he, pos in zip(wall_half_extents, wall_positions):
-            w_col = pb.createCollisionShape(pb.GEOM_BOX, halfExtents=he, physicsClientId=self.client_id)
-            w_vis = pb.createVisualShape(pb.GEOM_BOX, halfExtents=he, rgbaColor=[0.38, 0.20, 0.08, 1], physicsClientId=self.client_id)
-            w_id = pb.createMultiBody(baseMass=0, baseCollisionShapeIndex=w_col, baseVisualShapeIndex=w_vis, basePosition=pos, physicsClientId=self.client_id)
+            w_col = pb.createCollisionShape(
+                pb.GEOM_BOX, halfExtents=he, physicsClientId=self.client_id
+            )
+            w_vis = pb.createVisualShape(
+                pb.GEOM_BOX,
+                halfExtents=he,
+                rgbaColor=[0.38, 0.20, 0.08, 1],
+                physicsClientId=self.client_id,
+            )
+            w_id = pb.createMultiBody(
+                baseMass=0,
+                baseCollisionShapeIndex=w_col,
+                baseVisualShapeIndex=w_vis,
+                basePosition=pos,
+                physicsClientId=self.client_id,
+            )
             self.wall_ids.append(w_id)
-            
+
         if self.render_mode == "human":
-            pb.configureDebugVisualizer(pb.COV_ENABLE_GUI, 0, physicsClientId=self.client_id)
+            pb.configureDebugVisualizer(
+                pb.COV_ENABLE_GUI, 0, physicsClientId=self.client_id
+            )
 
         for _ in range(20):
             pb.stepSimulation(physicsClientId=self.client_id)
@@ -761,7 +864,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         # the gaps of the cartons the curriculum took out.
         self.carton_home_cells = []
         for rid in self.all_resource_ids:
-            p_, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+            p_, _ = pb.getBasePositionAndOrientation(
+                rid, physicsClientId=self.client_id
+            )
             self.carton_home_cells.append(self._world_to_grid(p_[0], p_[1]))
 
         # Cells a robot cannot enter. Shelf rows are the odd grid rows; every cell in
@@ -825,16 +930,32 @@ class HiveMindMultiAgentEnv(gym.Env):
     def _set_arm_and_lidar_joints(self, agent_idx, arm_yaw, finger_pos, lidar_height):
         rid = self.robot_ids[agent_idx]
         st = self.agent_state[agent_idx]
-        if st['arm_yaw_joint_idx'] is not None:
-            pb.resetJointState(rid, st['arm_yaw_joint_idx'], arm_yaw, physicsClientId=self.client_id)
-        if st['left_finger_joint_idx'] is not None:
-            pb.resetJointState(rid, st['left_finger_joint_idx'], finger_pos, physicsClientId=self.client_id)
-        if st['right_finger_joint_idx'] is not None:
-            pb.resetJointState(rid, st['right_finger_joint_idx'], -finger_pos, physicsClientId=self.client_id)
-        if st['lidar_joint_idx'] is not None:
-            pb.resetJointState(rid, st['lidar_joint_idx'], lidar_height, physicsClientId=self.client_id)
+        if st["arm_yaw_joint_idx"] is not None:
+            pb.resetJointState(
+                rid, st["arm_yaw_joint_idx"], arm_yaw, physicsClientId=self.client_id
+            )
+        if st["left_finger_joint_idx"] is not None:
+            pb.resetJointState(
+                rid,
+                st["left_finger_joint_idx"],
+                finger_pos,
+                physicsClientId=self.client_id,
+            )
+        if st["right_finger_joint_idx"] is not None:
+            pb.resetJointState(
+                rid,
+                st["right_finger_joint_idx"],
+                -finger_pos,
+                physicsClientId=self.client_id,
+            )
+        if st["lidar_joint_idx"] is not None:
+            pb.resetJointState(
+                rid, st["lidar_joint_idx"], lidar_height, physicsClientId=self.client_id
+            )
 
-    def _get_cardinal_direction_angle(self, target_world_pos, robot_world_pos, robot_yaw):
+    def _get_cardinal_direction_angle(
+        self, target_world_pos, robot_world_pos, robot_yaw
+    ):
         dx = target_world_pos[0] - robot_world_pos[0]
         dy = target_world_pos[1] - robot_world_pos[1]
         target_angle = math.atan2(dy, dx)
@@ -851,6 +972,26 @@ class HiveMindMultiAgentEnv(gym.Env):
         num_substeps = self.substeps
         self._lidar_cache = None
 
+        # --- Decode communication tokens and separate movement actions --------
+        if self.communication:
+            move_actions = []
+            for i in range(self.num_agents):
+                if self.comm_encoding == "multi":
+                    # actions is [move0, msg0, move1, msg1, ...]
+                    move_actions.append(int(actions[i * 2]))
+                    msg_token = int(actions[i * 2 + 1])
+                else:  # merged
+                    # actions is [combined0, combined1, ...]
+                    combined = int(actions[i])
+                    move_actions.append(combined // MSG_TOKENS)
+                    msg_token = combined % MSG_TOKENS
+                # Write one-hot message into this robot's buffer.
+                # _get_obs() reads self.messages to build the next observation,
+                # so messages sent at step t are observed at step t (same-step).
+                self.messages[i] = np.zeros(MSG_TOKENS, dtype=np.float32)
+                self.messages[i][msg_token] = 1.0
+            actions = move_actions
+
         # Per-step reward events (spec S3). Filled by the action loop below and
         # consumed by _compute_rewards() after the physics has settled.
         did_pickup = [False] * self.num_agents
@@ -860,15 +1001,17 @@ class HiveMindMultiAgentEnv(gym.Env):
         # Pre-compute trajectories
         starts = []
         targets = []
-        
+
         for i in range(self.num_agents):
             rid = self.robot_ids[i]
-            pos, orn = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+            pos, orn = pb.getBasePositionAndOrientation(
+                rid, physicsClientId=self.client_id
+            )
             yaw = pb.getEulerFromQuaternion(orn)[2]
-            
+
             # Snap yaw to exact cardinal direction to prevent drift
             yaw = round(yaw / (math.pi / 2.0)) * (math.pi / 2.0)
-            
+
             # Snap position to exact grid cell center to prevent drift.
             #
             # z is snapped too, which it was not until 2026-08-29. The chassis settles
@@ -880,24 +1023,29 @@ class HiveMindMultiAgentEnv(gym.Env):
             r, c = self._world_to_grid(pos[0], pos[1])
             gx, gy = self._grid_to_world(r, c)
             pos = (gx, gy, self._spawn_z)
-            
+
             action = actions[i]
-            
+
             st = self.agent_state[i]
             start_state = {
-                'pos': pos, 'yaw': yaw,
-                'arm_yaw': st['current_arm_yaw'],
-                'finger': st['current_finger_pos'],
-                'lidar': st['current_lidar_height'],
-                'wheel_delta': 0.0
+                "pos": pos,
+                "yaw": yaw,
+                "arm_yaw": st["current_arm_yaw"],
+                "finger": st["current_finger_pos"],
+                "lidar": st["current_lidar_height"],
+                "wheel_delta": 0.0,
             }
             target_state = start_state.copy()
-            
+
             if action == 0:  # Forward
-                nxt = (pos[0] + self.cell_size * math.cos(yaw), pos[1] + self.cell_size * math.sin(yaw), pos[2])
+                nxt = (
+                    pos[0] + self.cell_size * math.cos(yaw),
+                    pos[1] + self.cell_size * math.sin(yaw),
+                    pos[2],
+                )
                 if self._can_enter(nxt[0], nxt[1]):
-                    target_state['pos'] = nxt
-                    target_state['wheel_delta'] = 0.119
+                    target_state["pos"] = nxt
+                    target_state["wheel_delta"] = 0.119
                 else:
                     # Driving off the grid, or into a shelf, is an invalid action (spec
                     # S3.2). The move is refused rather than executed - nothing in the
@@ -906,55 +1054,72 @@ class HiveMindMultiAgentEnv(gym.Env):
                     # metric. See `blocked_cells` in reset() for why shelves joined it.
                     invalid_action[i] = True
             elif action == 1:  # Backward
-                nxt = (pos[0] - self.cell_size * math.cos(yaw), pos[1] - self.cell_size * math.sin(yaw), pos[2])
+                nxt = (
+                    pos[0] - self.cell_size * math.cos(yaw),
+                    pos[1] - self.cell_size * math.sin(yaw),
+                    pos[2],
+                )
                 if self._can_enter(nxt[0], nxt[1]):
-                    target_state['pos'] = nxt
-                    target_state['wheel_delta'] = -0.119
+                    target_state["pos"] = nxt
+                    target_state["wheel_delta"] = -0.119
                 else:
                     invalid_action[i] = True
             elif action == 2:  # Turn Left
-                target_state['yaw'] = yaw + (math.pi / 2.0)
-                target_state['wheel_delta'] = 0.05
+                target_state["yaw"] = yaw + (math.pi / 2.0)
+                target_state["wheel_delta"] = 0.05
             elif action == 3:  # Turn Right
-                target_state['yaw'] = yaw - (math.pi / 2.0)
-                target_state['wheel_delta'] = -0.05
-            elif action == 4 and self.is_carrying[i]:  # Pick Up while already loaded
-                invalid_action[i] = True
-            elif action == 5 and not self.is_carrying[i]:  # Drop Off with empty gripper
+                target_state["yaw"] = yaw - (math.pi / 2.0)
+                target_state["wheel_delta"] = -0.05
+            elif (
+                action == 4
+                and self.is_carrying[i]
+                or action == 5
+                and not self.is_carrying[i]
+            ):  # Pick Up while already loaded
                 invalid_action[i] = True
             elif action == 4 and not self.is_carrying[i]:  # Pick Up
                 nearest_res = None
-                min_dist = float('inf')
+                min_dist = float("inf")
                 for res_id in self.resource_ids:
-                    res_pos, _ = pb.getBasePositionAndOrientation(res_id, physicsClientId=self.client_id)
+                    res_pos, _ = pb.getBasePositionAndOrientation(
+                        res_id, physicsClientId=self.client_id
+                    )
                     dist = math.hypot(res_pos[0] - pos[0], res_pos[1] - pos[1])
                     if dist < min_dist:
                         min_dist = dist
                         nearest_res = res_id
-                
+
                 if nearest_res is not None and min_dist <= self.cell_size * 1.5:
-                    res_pos, _ = pb.getBasePositionAndOrientation(nearest_res, physicsClientId=self.client_id)
-                    target_state['arm_yaw'] = self._get_cardinal_direction_angle(res_pos, pos, yaw)
-                    target_state['finger'] = -0.01
-                    target_state['lidar'] = self.lidar_carry_height
+                    res_pos, _ = pb.getBasePositionAndOrientation(
+                        nearest_res, physicsClientId=self.client_id
+                    )
+                    target_state["arm_yaw"] = self._get_cardinal_direction_angle(
+                        res_pos, pos, yaw
+                    )
+                    target_state["finger"] = -0.01
+                    target_state["lidar"] = self.lidar_carry_height
                     self.is_carrying[i] = True
                     self.carried_resource_ids[i] = nearest_res
                     self.resource_ids.remove(nearest_res)
-                    target_state['res_start_pos'] = res_pos
-                    target_state['pickup_target'] = nearest_res
+                    target_state["res_start_pos"] = res_pos
+                    target_state["pickup_target"] = nearest_res
                     did_pickup[i] = True
                 else:
                     # Grabbing at nothing - no carton within reach (spec S3.2).
                     invalid_action[i] = True
             elif action == 5 and self.is_carrying[i]:  # Drop Off
-                dep_pos, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
+                dep_pos, _ = pb.getBasePositionAndOrientation(
+                    self.depot_id, physicsClientId=self.client_id
+                )
                 dist = math.hypot(pos[0] - dep_pos[0], pos[1] - dep_pos[1])
                 if dist <= self.cell_size * DEPOT_RADIUS_CELLS:
-                    target_state['arm_yaw'] = self._get_cardinal_direction_angle(dep_pos, pos, yaw)
-                    target_state['finger'] = 0.03
-                    target_state['lidar'] = 0.0
-                    target_state['dropoff'] = True
-                    target_state['drop_target'] = dep_pos
+                    target_state["arm_yaw"] = self._get_cardinal_direction_angle(
+                        dep_pos, pos, yaw
+                    )
+                    target_state["finger"] = 0.03
+                    target_state["lidar"] = 0.0
+                    target_state["dropoff"] = True
+                    target_state["drop_target"] = dep_pos
                     did_deliver[i] = True
                 else:
                     # Carrying, but not at the depot - the drop does not happen.
@@ -971,67 +1136,125 @@ class HiveMindMultiAgentEnv(gym.Env):
                 rid = self.robot_ids[i]
                 s = starts[i]
                 t = targets[i]
-                
+
                 # Interpolate Pos & Yaw
-                ix = s['pos'][0] + (t['pos'][0] - s['pos'][0]) * alpha
-                iy = s['pos'][1] + (t['pos'][1] - s['pos'][1]) * alpha
-                iyaw = s['yaw'] + (t['yaw'] - s['yaw']) * alpha
-                iorn = pb.getQuaternionFromEuler([0, 0, iyaw], physicsClientId=self.client_id)
-                pb.resetBasePositionAndOrientation(rid, [ix, iy, s['pos'][2]], iorn, physicsClientId=self.client_id)
-                
+                ix = s["pos"][0] + (t["pos"][0] - s["pos"][0]) * alpha
+                iy = s["pos"][1] + (t["pos"][1] - s["pos"][1]) * alpha
+                iyaw = s["yaw"] + (t["yaw"] - s["yaw"]) * alpha
+                iorn = pb.getQuaternionFromEuler(
+                    [0, 0, iyaw], physicsClientId=self.client_id
+                )
+                pb.resetBasePositionAndOrientation(
+                    rid, [ix, iy, s["pos"][2]], iorn, physicsClientId=self.client_id
+                )
+
                 # Interpolate Joints
-                st['current_arm_yaw'] = s['arm_yaw'] + (t['arm_yaw'] - s['arm_yaw']) * alpha
-                st['current_finger_pos'] = s['finger'] + (t['finger'] - s['finger']) * alpha
-                st['current_lidar_height'] = s['lidar'] + (t['lidar'] - s['lidar']) * alpha
-                self._set_arm_and_lidar_joints(i, st['current_arm_yaw'], st['current_finger_pos'], st['current_lidar_height'])
-                
+                st["current_arm_yaw"] = (
+                    s["arm_yaw"] + (t["arm_yaw"] - s["arm_yaw"]) * alpha
+                )
+                st["current_finger_pos"] = (
+                    s["finger"] + (t["finger"] - s["finger"]) * alpha
+                )
+                st["current_lidar_height"] = (
+                    s["lidar"] + (t["lidar"] - s["lidar"]) * alpha
+                )
+                self._set_arm_and_lidar_joints(
+                    i,
+                    st["current_arm_yaw"],
+                    st["current_finger_pos"],
+                    st["current_lidar_height"],
+                )
+
                 # Wheels
                 if actions[i] in [0, 1]:
-                    wd = t['wheel_delta']
-                    for idx in st['left_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos + wd, physicsClientId=self.client_id)
-                    for idx in st['right_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos + wd, physicsClientId=self.client_id)
-                elif actions[i] == 2: # Turn Left
-                    wd = t['wheel_delta']
-                    for idx in st['left_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos - wd, physicsClientId=self.client_id)
-                    for idx in st['right_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos + wd, physicsClientId=self.client_id)
-                elif actions[i] == 3: # Turn Right
-                    wd = t['wheel_delta']
-                    for idx in st['left_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos + wd, physicsClientId=self.client_id)
-                    for idx in st['right_wheel_indices']:
-                        pos = pb.getJointState(rid, idx, physicsClientId=self.client_id)[0]
-                        pb.resetJointState(rid, idx, pos - wd, physicsClientId=self.client_id)
+                    wd = t["wheel_delta"]
+                    for idx in st["left_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos + wd, physicsClientId=self.client_id
+                        )
+                    for idx in st["right_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos + wd, physicsClientId=self.client_id
+                        )
+                elif actions[i] == 2:  # Turn Left
+                    wd = t["wheel_delta"]
+                    for idx in st["left_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos - wd, physicsClientId=self.client_id
+                        )
+                    for idx in st["right_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos + wd, physicsClientId=self.client_id
+                        )
+                elif actions[i] == 3:  # Turn Right
+                    wd = t["wheel_delta"]
+                    for idx in st["left_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos + wd, physicsClientId=self.client_id
+                        )
+                    for idx in st["right_wheel_indices"]:
+                        pos = pb.getJointState(
+                            rid, idx, physicsClientId=self.client_id
+                        )[0]
+                        pb.resetJointState(
+                            rid, idx, pos - wd, physicsClientId=self.client_id
+                        )
 
                 # Resource interpolation
-                arm_world_angle = iyaw + st['current_arm_yaw']
+                arm_world_angle = iyaw + st["current_arm_yaw"]
                 carried_rx = ix + self.gripper_reach * math.cos(arm_world_angle)
                 carried_ry = iy + self.gripper_reach * math.sin(arm_world_angle)
-                
-                if actions[i] == 4 and 'pickup_target' in t: # Picking up
-                    res_id = t['pickup_target']
-                    start_res_pos = t['res_start_pos']
-                    cur_res_x = start_res_pos[0] + alpha * (carried_rx - start_res_pos[0])
-                    cur_res_y = start_res_pos[1] + alpha * (carried_ry - start_res_pos[1])
-                    pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
-                elif actions[i] == 5 and 'dropoff' in t: # Dropping off
+
+                if actions[i] == 4 and "pickup_target" in t:  # Picking up
+                    res_id = t["pickup_target"]
+                    start_res_pos = t["res_start_pos"]
+                    cur_res_x = start_res_pos[0] + alpha * (
+                        carried_rx - start_res_pos[0]
+                    )
+                    cur_res_y = start_res_pos[1] + alpha * (
+                        carried_ry - start_res_pos[1]
+                    )
+                    pb.resetBasePositionAndOrientation(
+                        res_id,
+                        [cur_res_x, cur_res_y, self.carton_size / 2.0],
+                        iorn,
+                        physicsClientId=self.client_id,
+                    )
+                elif actions[i] == 5 and "dropoff" in t:  # Dropping off
                     res_id = self.carried_resource_ids[i]
                     if res_id:
-                        dep_pos = t['drop_target']
+                        dep_pos = t["drop_target"]
                         cur_res_x = carried_rx + alpha * (dep_pos[0] - carried_rx)
                         cur_res_y = carried_ry + alpha * (dep_pos[1] - carried_ry)
-                        pb.resetBasePositionAndOrientation(res_id, [cur_res_x, cur_res_y, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
-                elif self.is_carrying[i] and self.carried_resource_ids[i]: # Carrying
+                        pb.resetBasePositionAndOrientation(
+                            res_id,
+                            [cur_res_x, cur_res_y, self.carton_size / 2.0],
+                            iorn,
+                            physicsClientId=self.client_id,
+                        )
+                elif self.is_carrying[i] and self.carried_resource_ids[i]:  # Carrying
                     res_id = self.carried_resource_ids[i]
-                    pb.resetBasePositionAndOrientation(res_id, [carried_rx, carried_ry, self.carton_size / 2.0], iorn, physicsClientId=self.client_id)
+                    pb.resetBasePositionAndOrientation(
+                        res_id,
+                        [carried_rx, carried_ry, self.carton_size / 2.0],
+                        iorn,
+                        physicsClientId=self.client_id,
+                    )
 
             pb.stepSimulation(physicsClientId=self.client_id)
             if self.render_mode == "human":
@@ -1039,11 +1262,13 @@ class HiveMindMultiAgentEnv(gym.Env):
 
         # Post-substep handling
         for i in range(self.num_agents):
-            if actions[i] == 4 and 'pickup_target' in targets[i]:
-                self.agent_state[i]['current_arm_yaw'] = targets[i]['arm_yaw']
-                self._set_arm_and_lidar_joints(i, targets[i]['arm_yaw'], -0.01, self.lidar_carry_height)
-                
-            elif actions[i] == 5 and 'dropoff' in targets[i]:
+            if actions[i] == 4 and "pickup_target" in targets[i]:
+                self.agent_state[i]["current_arm_yaw"] = targets[i]["arm_yaw"]
+                self._set_arm_and_lidar_joints(
+                    i, targets[i]["arm_yaw"], -0.01, self.lidar_carry_height
+                )
+
+            elif actions[i] == 5 and "dropoff" in targets[i]:
                 res_id = self.carried_resource_ids[i]
                 if res_id:
                     # Record the delivery against the carton's stable slot before the
@@ -1054,7 +1279,7 @@ class HiveMindMultiAgentEnv(gym.Env):
                     pb.removeBody(res_id, physicsClientId=self.client_id)
                 self.is_carrying[i] = False
                 self.carried_resource_ids[i] = None
-                self.agent_state[i]['current_arm_yaw'] = targets[i]['arm_yaw']
+                self.agent_state[i]["current_arm_yaw"] = targets[i]["arm_yaw"]
 
         self._update_kinematics()
 
@@ -1077,17 +1302,19 @@ class HiveMindMultiAgentEnv(gym.Env):
         self.last_reward_breakdown = breakdown
 
         info = self._get_info()
-        info.update({
-            "collisions": len(collisions),
-            "collision_pairs": sorted(collisions),
-            "pickups": [bool(p) for p in did_pickup],
-            "deliveries": [bool(d) for d in did_deliver],
-            "invalid_actions": [bool(v) for v in invalid_action],
-            "all_delivered": all_delivered,
-            "is_success": all_delivered,
-            "reward_breakdown": breakdown,
-            "episode_reward": self._episode_reward.copy(),
-        })
+        info.update(
+            {
+                "collisions": len(collisions),
+                "collision_pairs": sorted(collisions),
+                "pickups": [bool(p) for p in did_pickup],
+                "deliveries": [bool(d) for d in did_deliver],
+                "invalid_actions": [bool(v) for v in invalid_action],
+                "all_delivered": all_delivered,
+                "is_success": all_delivered,
+                "reward_breakdown": breakdown,
+                "episode_reward": self._episode_reward.copy(),
+            }
+        )
 
         return self._get_obs(), rewards.tolist(), terminated, truncated, info
 
@@ -1114,40 +1341,27 @@ class HiveMindMultiAgentEnv(gym.Env):
         """
         Contacts that count as collisions, as a set of hashable keys.
 
-        Spec S3.1 charges -5.0 for a "collision (any pair)", "per collision event".
-
-        WHAT COUNTS AS A PAIR
-        Robot-robot contacts, plus robot-vs-shelf and robot-vs-wall. The obstacle half
-        was added on 2026-08-29 with the shelf geometry fix: until then the bottom shelf
-        plate sat at 0.30 and the chassis topped out at 0.194, so robots drove straight
-        under the shelving and there was nothing to charge. Lowering the plate to 0.18
-        made shelves solid, and the penalty is what teaches robots to route around them
-        - "let the collision penalty do the work" rather than blocking the move outright,
-        so a wedged robot has to learn its way out instead of the env silently refusing.
-
-        WHY "EVENT" MEANS ONSET
-        Two readings are possible: charge every step a pair overlaps, or charge once when
-        the contact begins. The second is used - robots here are teleported rather than
-        driven, so an overlapping pair stays overlapped until one of them moves away, and
-        per-step charging would bill -5.0 repeatedly for a single mistake.
-        `_colliding_pairs` carries the previous step's contacts so only new ones are
-        billed. A robot that parks itself inside a shelf pays once, not forever; the time
-        penalty is what stops it sitting there.
+        Returns:
+            new_events: Set of new collision events.
+            collision_types: Dict mapping event to type ("robot", "obstacle") and involved agents.
         """
         current = set()
         for a in range(self.num_agents):
             for b in range(a + 1, self.num_agents):
-                if pb.getContactPoints(bodyA=self.robot_ids[a], bodyB=self.robot_ids[b],
-                                       physicsClientId=self.client_id):
+                if pb.getContactPoints(
+                    bodyA=self.robot_ids[a],
+                    bodyB=self.robot_ids[b],
+                    physicsClientId=self.client_id,
+                ):
+                    # Order agents so A < B consistently
                     current.add(("robot", a, b))
 
         obstacles = list(self.obstacle_ids) + list(getattr(self, "wall_ids", []))
         for i in range(self.num_agents):
             for oid in obstacles:
-                if pb.getContactPoints(bodyA=self.robot_ids[i], bodyB=oid,
-                                       physicsClientId=self.client_id):
-                    # One event per robot per step however many shelf segments it is
-                    # inside, so a robot straddling two segments is not billed twice.
+                if pb.getContactPoints(
+                    bodyA=self.robot_ids[i], bodyB=oid, physicsClientId=self.client_id
+                ):
                     current.add(("obstacle", i))
                     break
 
@@ -1161,14 +1375,17 @@ class HiveMindMultiAgentEnv(gym.Env):
         obstacles = list(self.obstacle_ids) + list(getattr(self, "wall_ids", []))
         for i in range(self.num_agents):
             for oid in obstacles:
-                if pb.getContactPoints(bodyA=self.robot_ids[i], bodyB=oid,
-                                       physicsClientId=self.client_id):
+                if pb.getContactPoints(
+                    bodyA=self.robot_ids[i], bodyB=oid, physicsClientId=self.client_id
+                ):
                     count += 1
                     break
         return count
 
     def _at_depot(self, agent_idx):
-        dep, _ = pb.getBasePositionAndOrientation(self.depot_id, physicsClientId=self.client_id)
+        dep, _ = pb.getBasePositionAndOrientation(
+            self.depot_id, physicsClientId=self.client_id
+        )
         x, y, _ = self._canonical_pose(agent_idx)
         return math.hypot(x - dep[0], y - dep[1]) <= self.cell_size * DEPOT_RADIUS_CELLS
 
@@ -1210,7 +1427,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         most of the episode. n_undelivered keeps moving until the job is done.
         """
         x, y, _ = self._canonical_pose(agent_idx)
-        n_left = sum(1 for slot in range(self.active_cartons) if not self.delivered[slot])
+        n_left = sum(
+            1 for slot in range(self.active_cartons) if not self.delivered[slot]
+        )
 
         if self.is_carrying[agent_idx]:
             dep, _ = pb.getBasePositionAndOrientation(
@@ -1223,7 +1442,9 @@ class HiveMindMultiAgentEnv(gym.Env):
             for slot, rid in enumerate(self.all_resource_ids):
                 if self.delivered[slot] or rid not in self.resource_ids:
                     continue
-                p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+                p, _ = pb.getBasePositionAndOrientation(
+                    rid, physicsClientId=self.client_id
+                )
                 dd = math.hypot(x - p[0], y - p[1])
                 if best is None or dd < best:
                     best = dd
@@ -1260,8 +1481,9 @@ class HiveMindMultiAgentEnv(gym.Env):
             self._prev_potential[i] = phi
         return out
 
-    def _compute_rewards(self, actions, did_pickup, did_deliver, invalid_action,
-                         collisions, terminated):
+    def _compute_rewards(
+        self, actions, did_pickup, did_deliver, invalid_action, collisions, terminated
+    ):
         """
         Spec S3: R_total_i = 0.90 * R_shared + 0.10 * R_individual_i
 
@@ -1277,8 +1499,17 @@ class HiveMindMultiAgentEnv(gym.Env):
 
         if deliveries_this_step:
             shared_terms["per_delivery"] = R_PER_DELIVERY * deliveries_this_step
-        if collisions:
-            shared_terms["collision"] = R_COLLISION * len(collisions)
+
+        # Asymmetric Collision Penalty: Shared pool gets a reduced hit
+        shared_collision_count = 0
+        for ev in collisions:
+            if ev[0] == "robot" or ev[0] == "obstacle":
+                shared_collision_count += 1
+
+        if shared_collision_count > 0:
+            # -1.0 shared penalty per collision event
+            shared_terms["collision"] = -1.0 * shared_collision_count
+
         shared_terms["time_penalty"] = R_TIME_PENALTY
 
         if terminated:
@@ -1307,6 +1538,19 @@ class HiveMindMultiAgentEnv(gym.Env):
                 terms["own_delivery"] = R_OWN_DELIVERY
             if invalid_action[i]:
                 terms["invalid_action"] = R_INVALID_ACTION
+
+            # Asymmetric collision individual penalty: Charge full -5.0 to moving robots.
+            # If a robot hits an obstacle, it pays.
+            # If it hits another robot, we check who moved.
+            indiv_collision_cost = 0.0
+            for ev in collisions:
+                if ev[0] == "obstacle" and ev[1] == i:
+                    indiv_collision_cost += R_COLLISION
+                elif ev[0] == "robot" and i in (ev[1], ev[2]) and actions[i] in (0, 1):
+                    # If this robot moved (action 0 or 1), charge it.
+                    indiv_collision_cost += R_COLLISION
+            if indiv_collision_cost < 0:
+                terms["collision"] = indiv_collision_cost
 
             # Idle: linear speed below threshold and not parked at the depot.
             # `idle_penalises_turning` follows the spec literally when True (a robot
@@ -1518,7 +1762,9 @@ class HiveMindMultiAgentEnv(gym.Env):
             if self.delivered[slot]:
                 x, y = depot_pos[0], depot_pos[1]
             else:
-                p, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.client_id)
+                p, _ = pb.getBasePositionAndOrientation(
+                    rid, physicsClientId=self.client_id
+                )
                 x, y = p[0], p[1]
             out.append(x / self._arena_half_extent)
             out.append(y / self._arena_half_extent)
@@ -1601,7 +1847,7 @@ class HiveMindMultiAgentEnv(gym.Env):
             # slots are marked delivered at reset so termination works, but counting
             # them here reported "8 delivered" on a fresh 4-carton reset - true for the
             # flag array, actively misleading as a metric.
-            "delivered": sum(self.delivered[:self.active_cartons]),
+            "delivered": sum(self.delivered[: self.active_cartons]),
             "delivered_flags_total": sum(self.delivered),
             "obs_dim": self.obs_dim,
             "active_cartons": self.active_cartons,
@@ -1611,13 +1857,46 @@ class HiveMindMultiAgentEnv(gym.Env):
             # so a human reading a log does not have to undo the normalisation.
             "lidar": [s.copy() for s in self._cached_lidar()],
             "lidar_distances": [
-                (LIDAR_MIN_RANGE + s.astype(np.float64) * (LIDAR_MAX_RANGE - LIDAR_MIN_RANGE))
+                (
+                    LIDAR_MIN_RANGE
+                    + s.astype(np.float64) * (LIDAR_MAX_RANGE - LIDAR_MIN_RANGE)
+                )
                 for s in self._cached_lidar()
             ],
         }
 
     def render(self):
-        pass
+        if self.render_mode != "rgb_array":
+            return None
+
+        # Capture an overhead view of the arena
+        width, height = 600, 600
+        view_matrix = pb.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=[0, 0, 0],
+            distance=10.0,
+            yaw=0,
+            pitch=-89,
+            roll=0,
+            upAxisIndex=2,
+            physicsClientId=self.client_id,
+        )
+        proj_matrix = pb.computeProjectionMatrixFOV(
+            fov=75,
+            aspect=float(width) / height,
+            nearVal=0.1,
+            farVal=100.0,
+            physicsClientId=self.client_id,
+        )
+        (_, _, px, _, _) = pb.getCameraImage(
+            width=width,
+            height=height,
+            viewMatrix=view_matrix,
+            projectionMatrix=proj_matrix,
+            renderer=pb.ER_TINY_RENDERER,  # use tiny renderer for headless
+            physicsClientId=self.client_id,
+        )
+        rgb_array = np.array(px).reshape(height, width, 4)
+        return rgb_array[:, :, :3]
 
     def close(self):
         """

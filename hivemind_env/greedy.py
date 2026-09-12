@@ -38,12 +38,15 @@ strict priority plus a progress watchdog - enough to keep it moving, nowhere nea
 optimal. Those are the things a learned policy is supposed to discover; if
 the baseline did them too, beating it would stop meaning anything.
 """
+
 from __future__ import annotations
 
 import math
 from collections import deque
 
 import pybullet as pb
+
+from hivemind_env.env import MSG_TOKENS
 
 # Action ids, from the environment's MultiDiscrete([7] * 4).
 FORWARD, BACKWARD, TURN_LEFT, TURN_RIGHT, PICKUP, DROP, STAY = range(7)
@@ -142,8 +145,10 @@ class GreedyController:
                 if (r, c) in self.blocked:
                     continue
                 wx, wy = env._grid_to_world(r, c)
-                if math.hypot(wx - self.depot_pos[0],
-                              wy - self.depot_pos[1]) <= env.cell_size * REACH_CELLS:
+                if (
+                    math.hypot(wx - self.depot_pos[0], wy - self.depot_pos[1])
+                    <= env.cell_size * REACH_CELLS
+                ):
                     self.drop_cells.add((r, c))
         if not self.drop_cells:
             raise RuntimeError(
@@ -152,8 +157,8 @@ class GreedyController:
                 "baseline exists to surface."
             )
 
-        self.claim = {i: None for i in range(self.n)}   # robot -> carton slot
-        self.claimed_by = {}                            # carton slot -> robot
+        self.claim = {i: None for i in range(self.n)}  # robot -> carton slot
+        self.claimed_by = {}  # carton slot -> robot
         self.waits = {i: 0 for i in range(self.n)}
         # Progress watchdog: how far each robot was from its goal, and for how many
         # steps it has failed to get closer. See _step_towards.
@@ -167,12 +172,14 @@ class GreedyController:
 
     def _heading(self, i):
         _, _, yaw = self.env._canonical_pose(i)
-        return int(round(yaw / (math.pi / 2.0))) % 4
+        return round(yaw / (math.pi / 2.0)) % 4
 
     def _carton_xy(self, slot):
         """Live world position of a carton. Only valid while its body exists."""
         rid = self.env.all_resource_ids[slot]
-        pos, _ = pb.getBasePositionAndOrientation(rid, physicsClientId=self.env.client_id)
+        pos, _ = pb.getBasePositionAndOrientation(
+            rid, physicsClientId=self.env.client_id
+        )
         return pos[0], pos[1]
 
     def _carton_cell(self, slot):
@@ -193,8 +200,10 @@ class GreedyController:
     def _can_drop(self, i):
         """Measured against the depot body itself, exactly as the environment does."""
         x, y, _ = self.env._canonical_pose(i)
-        return math.hypot(x - self.depot_pos[0],
-                          y - self.depot_pos[1]) <= self.env.cell_size * REACH_CELLS
+        return (
+            math.hypot(x - self.depot_pos[0], y - self.depot_pos[1])
+            <= self.env.cell_size * REACH_CELLS
+        )
 
     def _neighbourhood(self, cell):
         """Cells from which `cell` is reachable - itself plus its 8 neighbours."""
@@ -203,8 +212,11 @@ class GreedyController:
         for dr in (-1, 0, 1):
             for dc in (-1, 0, 1):
                 n = (r + dr, c + dc)
-                if (0 <= n[0] < self.env.grid_size and 0 <= n[1] < self.env.grid_size
-                        and n not in self.blocked):
+                if (
+                    0 <= n[0] < self.env.grid_size
+                    and 0 <= n[1] < self.env.grid_size
+                    and n not in self.blocked
+                ):
                     out.add(n)
         return out
 
@@ -225,9 +237,10 @@ class GreedyController:
         for slot in self._available_slots():
             goals = self._neighbourhood(self._carton_cell(slot))
             if not goals:
-                continue          # shoved somewhere with no free cell beside it
-            path = bfs(start, goals,
-                       self.blocked | (reserved - {start}), self.env.grid_size)
+                continue  # shoved somewhere with no free cell beside it
+            path = bfs(
+                start, goals, self.blocked | (reserved - {start}), self.env.grid_size
+            )
             if path is not None and (best_len is None or len(path) < best_len):
                 best, best_len = slot, len(path)
         if best is not None:
@@ -253,7 +266,9 @@ class GreedyController:
         difference between a fair baseline and a hobbled one.
         """
         start = self._cell(i)
-        path = bfs(start, goals, self.blocked | (reserved - {start}), self.env.grid_size)
+        path = bfs(
+            start, goals, self.blocked | (reserved - {start}), self.env.grid_size
+        )
 
         # Progress watchdog. Priority ordering removes mutual yielding, but a robot can
         # still be walled in by a lower-priority robot that has nowhere useful to go. If
@@ -285,7 +300,7 @@ class GreedyController:
         if turn == 0:
             return FORWARD, nxt
         if turn == 2:
-            return BACKWARD, nxt     # one action, not two turns
+            return BACKWARD, nxt  # one action, not two turns
         # Turning in place: the robot stays where it is this step.
         return (TURN_LEFT if turn == 1 else TURN_RIGHT), start
 
@@ -327,8 +342,10 @@ class GreedyController:
 
             # Not carrying: make sure the claim is still live.
             slot = self.claim[i]
-            if slot is not None and (env.delivered[slot]
-                                     or env.all_resource_ids[slot] not in env.resource_ids):
+            if slot is not None and (
+                env.delivered[slot]
+                or env.all_resource_ids[slot] not in env.resource_ids
+            ):
                 self._release(i)
                 self._reset_progress(i)
                 slot = None
@@ -337,7 +354,7 @@ class GreedyController:
                 self._reset_progress(i)
 
             if slot is None:
-                actions[i] = STAY        # nothing left to fetch
+                actions[i] = STAY  # nothing left to fetch
                 reserved.add(here)
                 continue
 
@@ -358,6 +375,16 @@ class GreedyController:
             actions[i], nxt = self._step_towards(i, goals, reserved)
             reserved.add(nxt)
 
+        # Format actions for the communication-aware action space if needed.
+        if getattr(self.env, "communication", False):
+            if self.env.comm_encoding == "multi":
+                # [move0, 0, move1, 0, move2, 0, move3, 0]
+                joint = []
+                for a in actions:
+                    joint.extend([a, 0])
+                return joint
+            else:  # merged
+                return [a * MSG_TOKENS + 0 for a in actions]
         return actions
 
     def sync_after_step(self):
