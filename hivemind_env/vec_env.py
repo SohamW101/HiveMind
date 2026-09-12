@@ -44,13 +44,19 @@ world go `done` on the same step and reset together. SB3's auto-reset contract i
 honoured per slot: the returned observation is the first of the new episode, and the
 final observation of the old one is placed in `info["terminal_observation"]`.
 """
+
 from __future__ import annotations
 
 import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
-from hivemind_env.env import DEFAULT_OBS_DIM, NUM_AGENTS, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    DEFAULT_OBS_DIM,
+    MSG_TOKENS,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+)
 
 
 class HiveMindSharedPolicyVecEnv(VecEnv):
@@ -62,17 +68,28 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
     rather than leaving callers to rediscover the arithmetic.
     """
 
-    metadata = {"render_modes": []}
+    metadata = {"render_modes": []}  # noqa: RUF012
 
-    def __init__(self, num_worlds: int = 1, difficulty_level: int = 1,
-                 obs_dim: int = DEFAULT_OBS_DIM, seed: int | None = None, **env_kwargs):
+    def __init__(
+        self,
+        num_worlds: int = 1,
+        difficulty_level: int = 1,
+        obs_dim: int = DEFAULT_OBS_DIM,
+        seed: int | None = None,
+        **env_kwargs,
+    ):
         self.num_worlds = int(num_worlds)
         if self.num_worlds < 1:
             raise ValueError(f"num_worlds must be >= 1, got {num_worlds}")
 
+        render_mode = env_kwargs.pop("render_mode", None)
         self.envs = [
-            HiveMindMultiAgentEnv(render_mode=None, difficulty_level=difficulty_level,
-                                  obs_dim=obs_dim, **env_kwargs)
+            HiveMindMultiAgentEnv(
+                render_mode=render_mode,
+                difficulty_level=difficulty_level,
+                obs_dim=obs_dim,
+                **env_kwargs,
+            )
             for _ in range(self.num_worlds)
         ]
 
@@ -82,8 +99,18 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
         self._base_seed = seed
         self._episode_counter = [0] * self.num_worlds
 
+        # Communication mode mirrors the underlying envs.
+        self._communication = getattr(self.envs[0], "communication", False)
+        self._comm_encoding = getattr(self.envs[0], "comm_encoding", "multi")
+
         single_obs = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
-        single_act = spaces.Discrete(int(self.envs[0].action_space.nvec[0]))
+        if self._communication:
+            if self._comm_encoding == "multi":
+                single_act = spaces.MultiDiscrete([7, MSG_TOKENS])
+            else:  # merged
+                single_act = spaces.Discrete(7 * MSG_TOKENS)
+        else:
+            single_act = spaces.Discrete(int(self.envs[0].action_space.nvec[0]))
         super().__init__(self.num_worlds * NUM_AGENTS, single_obs, single_act)
 
         self._obs = np.zeros((self.num_envs, obs_dim), dtype=np.float32)
@@ -117,7 +144,7 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
         return self._obs.copy()
 
     def step_async(self, actions: np.ndarray) -> None:
-        self._actions = np.asarray(actions, dtype=np.int64).reshape(self.num_envs)
+        self._actions = np.asarray(actions, dtype=np.int64).flatten()
 
     def step_wait(self):
         rewards = np.zeros(self.num_envs, dtype=np.float32)
@@ -126,7 +153,17 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
 
         for w, env in enumerate(self.envs):
             slots = list(self._slots(w))
-            joint = self._actions[slots]
+            # Build the joint action for this world from the per-slot actions.
+            if self._communication and self._comm_encoding == "multi":
+                # Each slot produced [move, msg] → env expects [m0, t0, m1, t1, ...]
+                joint = []
+                for slot in slots:
+                    slot_act = self._actions[slot * 2 : slot * 2 + 2]
+                    joint.extend(slot_act.tolist())
+                joint = np.array(joint, dtype=np.int64)
+            else:
+                # Discrete(7) or Discrete(112) → one int per slot
+                joint = self._actions[slots]
             obs, rew, terminated, truncated, info = env.step(joint)
             done = bool(terminated or truncated)
 
@@ -155,7 +192,9 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
                 # episode boundary and slightly poisons the advantage estimates.
                 for a, slot in enumerate(slots):
                     infos[slot]["terminal_observation"] = obs[a].copy()
-                    infos[slot]["TimeLimit.truncated"] = bool(truncated and not terminated)
+                    infos[slot]["TimeLimit.truncated"] = bool(
+                        truncated and not terminated
+                    )
                 new_obs, _ = env.reset(seed=self._world_seed(w))
                 self._episode_counter[w] += 1
                 for a, slot in enumerate(slots):
@@ -170,7 +209,7 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
         for env in self.envs:
             try:
                 env.close()
-            except Exception:
+            except Exception:  # noqa: BLE001, S110
                 # close() is not idempotent on the underlying env and a partially torn
                 # down vec env must not mask the real error with a disconnect error.
                 pass
@@ -193,16 +232,20 @@ class HiveMindSharedPolicyVecEnv(VecEnv):
         return list(indices)
 
     def get_attr(self, attr_name: str, indices=None) -> list:
-        return [getattr(self.envs[self.world_of(i)], attr_name)
-                for i in self._slot_indices(indices)]
+        return [
+            getattr(self.envs[self.world_of(i)], attr_name)
+            for i in self._slot_indices(indices)
+        ]
 
     def set_attr(self, attr_name: str, value, indices=None) -> None:
         for w in self._worlds_for(indices):
             setattr(self.envs[w], attr_name, value)
 
     def env_method(self, method_name: str, *args, indices=None, **kwargs) -> list:
-        return [getattr(self.envs[w], method_name)(*args, **kwargs)
-                for w in self._worlds_for(indices)]
+        return [
+            getattr(self.envs[w], method_name)(*args, **kwargs)
+            for w in self._worlds_for(indices)
+        ]
 
     def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
         return [False] * len(self._slot_indices(indices))

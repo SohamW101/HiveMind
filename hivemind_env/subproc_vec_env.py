@@ -33,6 +33,7 @@ re-imports this module in the child, so the worker function is defined at module
 and everything it receives is picklable. That also means anything constructing this
 class must sit behind an `if __name__ == "__main__":` guard.
 """
+
 from __future__ import annotations
 
 import multiprocessing as mp
@@ -41,7 +42,12 @@ import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
-from hivemind_env.env import DEFAULT_OBS_DIM, NUM_AGENTS, HiveMindMultiAgentEnv
+from hivemind_env.env import (
+    DEFAULT_OBS_DIM,
+    MSG_TOKENS,
+    NUM_AGENTS,
+    HiveMindMultiAgentEnv,
+)
 
 
 def _slot_infos(info, world):
@@ -90,7 +96,9 @@ def _worker(remote, parent_remote, world, base_seed, env_kwargs):
                     # never has to know an episode boundary happened.
                     for a in range(NUM_AGENTS):
                         infos[a]["terminal_observation"] = obs[a].copy()
-                        infos[a]["TimeLimit.truncated"] = bool(truncated and not terminated)
+                        infos[a]["TimeLimit.truncated"] = bool(
+                            truncated and not terminated
+                        )
                     obs, _ = env.reset(seed=next_seed())
                 remote.send((obs, np.asarray(rew, dtype=np.float32), done, infos))
 
@@ -131,11 +139,17 @@ class HiveMindSubprocVecEnv(VecEnv):
     debugging (a traceback in a worker is much harder to read) and this one to train.
     """
 
-    metadata = {"render_modes": []}
+    metadata = {"render_modes": []}  # noqa: RUF012
 
-    def __init__(self, num_worlds: int = 4, difficulty_level: int = 1,
-                 obs_dim: int = DEFAULT_OBS_DIM, seed: int | None = None,
-                 start_method: str = "spawn", **env_kwargs):
+    def __init__(
+        self,
+        num_worlds: int = 4,
+        difficulty_level: int = 1,
+        obs_dim: int = DEFAULT_OBS_DIM,
+        seed: int | None = None,
+        start_method: str = "spawn",
+        **env_kwargs,
+    ):
         self.num_worlds = int(num_worlds)
         if self.num_worlds < 1:
             raise ValueError(f"num_worlds must be >= 1, got {num_worlds}")
@@ -143,28 +157,41 @@ class HiveMindSubprocVecEnv(VecEnv):
         self.closed = False
 
         ctx = mp.get_context(start_method)
-        worker_kwargs = dict(difficulty_level=difficulty_level, obs_dim=obs_dim,
-                             **env_kwargs)
+        worker_kwargs = dict(
+            difficulty_level=difficulty_level, obs_dim=obs_dim, **env_kwargs
+        )
 
         self.remotes, self.work_remotes = zip(
             *[ctx.Pipe() for _ in range(self.num_worlds)]
         )
         self.processes = []
-        for world, (work_remote, remote) in enumerate(zip(self.work_remotes, self.remotes)):
+        for world, (work_remote, remote) in enumerate(
+            zip(self.work_remotes, self.remotes)
+        ):
             proc = ctx.Process(
                 target=_worker,
                 args=(work_remote, remote, world, seed, worker_kwargs),
-                daemon=True,   # workers must not outlive a crashed parent
+                daemon=True,  # workers must not outlive a crashed parent
             )
             proc.start()
             self.processes.append(proc)
             work_remote.close()
 
         single_obs = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
-        single_act = spaces.Discrete(7)
+        if env_kwargs.get("communication", False):
+            if env_kwargs.get("comm_encoding", "multi") == "multi":
+                single_act = spaces.MultiDiscrete([7, MSG_TOKENS])
+            else:
+                single_act = spaces.Discrete(7 * MSG_TOKENS)
+        else:
+            single_act = spaces.Discrete(7)
         super().__init__(self.num_worlds * NUM_AGENTS, single_obs, single_act)
 
         self._obs = np.zeros((self.num_envs, obs_dim), dtype=np.float32)
+
+        # Communication mode mirrors what the workers were built with.
+        self._communication = env_kwargs.get("communication", False)
+        self._comm_encoding = env_kwargs.get("comm_encoding", "multi")
 
     # -- slot <-> (world, agent) ------------------------------------------------
     def world_of(self, slot: int) -> int:
@@ -188,10 +215,19 @@ class HiveMindSubprocVecEnv(VecEnv):
         return self._obs.copy()
 
     def step_async(self, actions: np.ndarray) -> None:
-        actions = np.asarray(actions, dtype=np.int64).reshape(self.num_envs)
+        actions = np.asarray(actions, dtype=np.int64).flatten()
         # Fire every world before reading any reply - that overlap is the whole point.
         for w, remote in enumerate(self.remotes):
-            remote.send(("step", actions[list(self._slots(w))]))
+            slots = list(self._slots(w))
+            if self._communication and self._comm_encoding == "multi":
+                # Each slot produced [move, msg] → env expects [m0, t0, m1, t1, ...]
+                joint = []
+                for slot in slots:
+                    slot_act = actions[slot * 2 : slot * 2 + 2]
+                    joint.extend(slot_act.tolist())
+                remote.send(("step", np.array(joint, dtype=np.int64)))
+            else:
+                remote.send(("step", actions[slots]))
         self.waiting = True
 
     def step_wait(self):
@@ -273,5 +309,5 @@ class HiveMindSubprocVecEnv(VecEnv):
     def __del__(self):
         try:
             self.close()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
