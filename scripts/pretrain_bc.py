@@ -53,6 +53,7 @@ The critic is NOT cloned - there is nothing to clone it from. It starts fresh an
 fits it during fine-tuning, which is why the first few fine-tuning iterations will look
 worse before they look better.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -107,12 +108,18 @@ def collect(episodes: int, num_cartons: int, seed0: int, verbose: bool = True):
         env.close()
 
         if verbose and (ep + 1) % 10 == 0:
-            print(f"  {ep + 1:3d}/{episodes} episodes, {len(obs_buf):,} samples", flush=True)
+            print(
+                f"  {ep + 1:3d}/{episodes} episodes, {len(obs_buf):,} samples",
+                flush=True,
+            )
 
     ms = float(np.mean(makespans)) if makespans else float("nan")
-    return (np.asarray(obs_buf, dtype=np.float32),
-            np.asarray(act_buf, dtype=np.int64),
-            completed, ms)
+    return (
+        np.asarray(obs_buf, dtype=np.float32),
+        np.asarray(act_buf, dtype=np.int64),
+        completed,
+        ms,
+    )
 
 
 def main():
@@ -122,9 +129,13 @@ def main():
     ap.add_argument("--epochs", type=int, default=12)
     ap.add_argument("--batch-size", type=int, default=512)
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--seed", type=int, default=5000,
-                    help="Demo seeds start here. Kept clear of the 1000-1029 evaluation "
-                         "seeds so the policy is not cloned on the seeds it is scored on.")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=5000,
+        help="Demo seeds start here. Kept clear of the 1000-1029 evaluation "
+        "seeds so the policy is not cloned on the seeds it is scored on.",
+    )
     ap.add_argument("--out", default="models/bc_pretrained.zip")
     args = ap.parse_args()
 
@@ -133,26 +144,35 @@ def main():
     print("  Behaviour cloning from the greedy controller")
     print("=" * 74)
     print(f"  episodes    : {args.episodes} at {args.num_cartons} cartons")
-    print(f"  demo seeds  : {args.seed}..{args.seed + args.episodes - 1} "
-          f"(evaluation uses 1000-1029, kept separate)")
+    print(
+        f"  demo seeds  : {args.seed}..{args.seed + args.episodes - 1} "
+        f"(evaluation uses 1000-1029, kept separate)"
+    )
     print(f"  device      : {device}\n", flush=True)
 
     t0 = time.time()
     obs, acts, completed, ms = collect(args.episodes, args.num_cartons, args.seed)
     print(f"\n  collected {len(obs):,} robot-steps in {time.time() - t0:.0f}s")
-    print(f"  demonstrator: {completed}/{args.episodes} episodes completed, "
-          f"mean makespan {ms:.1f}")
+    print(
+        f"  demonstrator: {completed}/{args.episodes} episodes completed, "
+        f"mean makespan {ms:.1f}"
+    )
     counts = np.bincount(acts, minlength=7)
-    print("  action mix  : " + "  ".join(
-        f"{ACTION_NAMES[i]} {counts[i] / len(acts):.1%}" for i in range(7)))
+    print(
+        "  action mix  : "
+        + "  ".join(f"{ACTION_NAMES[i]} {counts[i] / len(acts):.1%}" for i in range(7))
+    )
     if completed < args.episodes:
-        print("  WARNING: the demonstrator did not finish every episode - cloning a "
-              "controller that fails will teach the policy to fail too.")
+        print(
+            "  WARNING: the demonstrator did not finish every episode - cloning a "
+            "controller that fails will teach the policy to fail too."
+        )
 
     # A throwaway env just to give PPO the right spaces; it is never stepped.
     vec = HiveMindSharedPolicyVecEnv(num_worlds=1, num_cartons=args.num_cartons)
-    model = PPO("MlpPolicy", vec, policy_kwargs=DEFAULT_POLICY_KWARGS,
-                device=device, verbose=0)
+    model = PPO(
+        "MlpPolicy", vec, policy_kwargs=DEFAULT_POLICY_KWARGS, device=device, verbose=0
+    )
 
     policy = model.policy
     opt = torch.optim.Adam(policy.parameters(), lr=args.lr)
@@ -165,7 +185,7 @@ def main():
         perm = torch.randperm(n, device=policy.device)
         tot_loss, tot_correct = 0.0, 0
         for start in range(0, n, args.batch_size):
-            idx = perm[start:start + args.batch_size]
+            idx = perm[start : start + args.batch_size]
             dist = policy.get_distribution(obs_t[idx])
             logits = dist.distribution.logits
             loss = F.cross_entropy(logits, act_t[idx])
@@ -175,8 +195,11 @@ def main():
             opt.step()
             tot_loss += loss.item() * len(idx)
             tot_correct += (logits.argmax(1) == act_t[idx]).sum().item()
-        print(f"    epoch {epoch + 1:2d}/{args.epochs}  loss {tot_loss / n:.4f}  "
-              f"action match {tot_correct / n:.1%}", flush=True)
+        print(
+            f"    epoch {epoch + 1:2d}/{args.epochs}  loss {tot_loss / n:.4f}  "
+            f"action match {tot_correct / n:.1%}",
+            flush=True,
+        )
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     model.save(args.out)
@@ -185,8 +208,10 @@ def main():
     print(f"\n  saved {args.out}")
     print(f"  wall clock {(time.time() - t0) / 60:.1f} min")
     print("\n  Fine-tune with:")
-    print(f"    .venv\\Scripts\\python.exe train.py --init-from {args.out} "
-          f"--num-cartons {args.num_cartons}")
+    print(
+        f"    .venv\\Scripts\\python.exe train.py --init-from {args.out} "
+        f"--num-cartons {args.num_cartons}"
+    )
     print("\n  Score the clone BEFORE fine-tuning too - the improvement is only")
     print("  readable if both numbers are reported.")
 
