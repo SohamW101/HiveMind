@@ -42,14 +42,34 @@ The message branch exists and runs even though its input is all zeros, exactly a
 observation reserves the slots. Step 7 fills them and the architecture does not change -
 which is what keeps the no-communication baseline comparable to the communicating run.
 """
+
 from __future__ import annotations
 
 import gymnasium as gym
 import torch
-import torch.nn as nn
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from torch import nn
 
 from hivemind_env.env import OBS_SLICES
+
+
+class MessageAttention(nn.Module):
+    def __init__(self, num_agents_other=3, token_dim=16, embed_dim=64):
+        super().__init__()
+        self.num_agents_other = num_agents_other
+        self.token_dim = token_dim
+        self.embed = nn.Linear(token_dim, embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads=4, batch_first=True)
+
+    def forward(self, x):
+        batch_size = x.shape[0]
+        # Reshape flat message vector into sequence: (batch, num_agents_other, token_dim)
+        x = x.view(batch_size, self.num_agents_other, self.token_dim)
+        x = self.embed(x)
+        attn_out, _ = self.attn(x, x, x)
+        # Max pool over the agents to get a permutation-invariant representation
+        out, _ = torch.max(attn_out, dim=1)
+        return out
 
 
 class HiveMindExtractor(BaseFeaturesExtractor):
@@ -60,8 +80,13 @@ class HiveMindExtractor(BaseFeaturesExtractor):
     turning if step 6 underfits; everything else follows from the observation space.
     """
 
-    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 256,
-                 lidar_channels: int = 32, hidden: int = 128):
+    def __init__(
+        self,
+        observation_space: gym.spaces.Box,
+        features_dim: int = 256,
+        lidar_channels: int = 32,
+        hidden: int = 128,
+    ):
         super().__init__(observation_space, features_dim)
 
         obs_dim = int(observation_space.shape[0])
@@ -83,28 +108,34 @@ class HiveMindExtractor(BaseFeaturesExtractor):
 
         world_dim = self.world_slice[1] - self.world_slice[0]
         n_rays = self.lidar_slice[1] - self.lidar_slice[0]
-        msg_dim = self.msg_slice[1] - self.msg_slice[0]
+        self.msg_slice[1] - self.msg_slice[0]
 
         self.world_net = nn.Sequential(
-            nn.Linear(world_dim, hidden), nn.ReLU(),
-            nn.Linear(hidden, hidden), nn.ReLU(),
+            nn.Linear(world_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
         )
 
         # Stride-2 convolutions rather than pooling: the sweep is short enough that
         # halving twice is plenty, and stride keeps the angular ordering intact.
         self.lidar_net = nn.Sequential(
-            nn.Conv1d(1, lidar_channels, kernel_size=5, stride=2, padding=2), nn.ReLU(),
-            nn.Conv1d(lidar_channels, lidar_channels, kernel_size=3, stride=2, padding=1),
+            nn.Conv1d(1, lidar_channels, kernel_size=5, stride=2, padding=2),
+            nn.ReLU(),
+            nn.Conv1d(
+                lidar_channels, lidar_channels, kernel_size=3, stride=2, padding=1
+            ),
             nn.ReLU(),
             nn.Flatten(),
         )
         with torch.no_grad():
             lidar_out = self.lidar_net(torch.zeros(1, 1, n_rays)).shape[1]
 
-        self.msg_net = nn.Sequential(nn.Linear(msg_dim, 64), nn.ReLU())
+        self.msg_net = MessageAttention(num_agents_other=3, token_dim=16, embed_dim=64)
 
         self.head = nn.Sequential(
-            nn.Linear(hidden + lidar_out + 64, features_dim), nn.ReLU(),
+            nn.Linear(hidden + lidar_out + 64, features_dim),
+            nn.ReLU(),
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -122,9 +153,12 @@ class HiveMindExtractor(BaseFeaturesExtractor):
 
 # Default policy_kwargs for PPO. Kept here so train.py and any evaluation script agree
 # on the architecture without restating it - a mismatch loads as a shape error.
-DEFAULT_POLICY_KWARGS = dict(
-    features_extractor_class=HiveMindExtractor,
-    features_extractor_kwargs=dict(features_dim=256),
-    # Actor and critic each get their own small head on top of the shared features.
-    net_arch=dict(pi=[128, 128], vf=[128, 128]),
-)
+DEFAULT_POLICY_KWARGS = {
+    "features_extractor_class": HiveMindExtractor,
+    "features_extractor_kwargs": {"features_dim": 256},
+    # Do not share features extractor between actor and critic to prevent value function
+    # gradients from interfering with the policy representation (crucial for MARL CTDE).
+    "share_features_extractor": False,
+    # Actor and critic each get their own small head on top of the separated features.
+    "net_arch": {"pi": [128, 128], "vf": [128, 128]},
+}

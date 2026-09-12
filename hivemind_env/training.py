@@ -20,20 +20,19 @@ observation, pays the reward structure from MAWC_Technical_Specification.pdf sec
 and ends episodes on completion or the step limit. What is still missing before a run
 means anything: the greedy baseline (step 5) and models.py / train.py (step 6).
 """
+
 import os
 from collections import deque
-from typing import Callable
+from collections.abc import Callable
 
 import torch
+from stable_baselines3.common.callbacks import BaseCallback
 
 from hivemind_env.env import (
     DEFAULT_OBS_DIM,
-    OBS_DIM_V3,
     HiveMindMultiAgentEnv,
     max_steps_for,
 )
-
-from stable_baselines3.common.callbacks import BaseCallback
 
 # PORT NOTE: the single-agent env exported OBS_SIZE_V1 / OBS_SIZE_V2 / DEFAULT_OBS_SIZE
 # and this module imported them. When this file was first ported, the multi-agent env
@@ -100,12 +99,16 @@ def linear_schedule(initial_value: float) -> Callable[[float], float]:
     Linear learning rate decay from initial_value -> 0.0 over the entire training run.
     progress_remaining goes from 1.0 (start) to 0.0 (end).
     """
+
     def func(progress_remaining: float) -> float:
         return progress_remaining * initial_value
+
     return func
 
 
-def restart_schedule(initial_value: float, progress_at_restart: float) -> Callable[[float], float]:
+def restart_schedule(
+    initial_value: float, progress_at_restart: float
+) -> Callable[[float], float]:
     """
     Linear decay that returns `initial_value` at the moment of the restart and still
     reaches 0.0 at the end of the run.
@@ -120,6 +123,7 @@ def restart_schedule(initial_value: float, progress_at_restart: float) -> Callab
 
     def func(progress_remaining: float) -> float:
         return initial_value * max(0.0, progress_remaining / progress_at_restart)
+
     return func
 
 
@@ -164,12 +168,13 @@ class CurriculumCallback(BaseCallback):
     logic. Be aware that under that wrapper `window_size` counts robot-episodes, not
     world-episodes.
     """
+
     def __init__(
         self,
         initial_lr: float,
         check_freq: int = 1000,
-        target_success_rate: float = 0.70,
-        window_size: int = 100,
+        target_success_rate: float = 0.85,
+        window_size: int = 300,
         reset_lr_on_promotion: bool = True,
         verbose: int = 1,
     ):
@@ -189,14 +194,18 @@ class CurriculumCallback(BaseCallback):
         infos = self.locals.get("infos") or [{}] * len(dones)
         for done, reward, info in zip(dones, self.locals["rewards"], infos):
             if done:
-                self.delivery_history.append(1 if _episode_succeeded(info, reward) else 0)
+                self.delivery_history.append(
+                    1 if _episode_succeeded(info, reward) else 0
+                )
 
         if self.n_calls % self.check_freq != 0:
             return True
 
         current_level = self.training_env.get_attr("difficulty_level")[0]
         self.logger.record("curriculum/difficulty_level", current_level)
-        self.logger.record("curriculum/target_cartons", TRAINING_CURRICULUM[current_level])
+        self.logger.record(
+            "curriculum/target_cartons", TRAINING_CURRICULUM[current_level]
+        )
 
         if len(self.delivery_history) < self.window_size:
             return True
@@ -204,11 +213,14 @@ class CurriculumCallback(BaseCallback):
         success_rate = sum(self.delivery_history) / self.window_size
         self.logger.record("curriculum/success_rate", success_rate)
 
-        if success_rate >= self.target_success_rate and current_level < MAX_TRAINING_LEVEL:
+        if (
+            success_rate >= self.target_success_rate
+            and current_level < MAX_TRAINING_LEVEL
+        ):
             new_level = current_level + 1
             print(
                 f"\n[Curriculum] Step {self.num_timesteps:,} | "
-                f"Success rate {success_rate*100:.1f}% >= {self.target_success_rate*100:.0f}% | "
+                f"Success rate {success_rate * 100:.1f}% >= {self.target_success_rate * 100:.0f}% | "
                 f"Upgrading difficulty: Level {current_level} -> Level {new_level} "
                 f"({TRAINING_CURRICULUM[current_level]} -> {TRAINING_CURRICULUM[new_level]} cartons)\n"
             )
@@ -223,9 +235,58 @@ class CurriculumCallback(BaseCallback):
             self.delivery_history.clear()
 
             if self.reset_lr_on_promotion:
-                progress = self.model._current_progress_remaining
-                self.model.lr_schedule = restart_schedule(self.initial_lr, progress)
-                print(f"[Curriculum] Learning rate schedule restarted at {self.initial_lr:.0e}")
+                # Full restart: the new task is as hard as starting from scratch.
+                self.model.lr_schedule = linear_schedule(self.initial_lr)
+                # Also reset the entropy coefficient to encourage re-exploration
+                self.model.ent_coef = 0.02
+                print(
+                    f"[Curriculum] Learning rate schedule restarted at {self.initial_lr:.0e}"
+                )
+
+        return True
+
+
+class MetricsCallback(BaseCallback):
+    """
+    Logs episode-level RL metrics to TensorBoard, giving much deeper visibility
+    into the agents' behaviour (pickups, deliveries) than just success rate.
+    """
+
+    def __init__(self, window_size: int = 100, verbose: int = 0):
+        super().__init__(verbose)
+        self.window_size = window_size
+        self.pickups_history = deque(maxlen=window_size)
+        self.deliveries_history = deque(maxlen=window_size)
+        self.delivered_history = deque(maxlen=window_size)
+
+    def _on_step(self) -> bool:
+        dones = self.locals["dones"]
+        infos = self.locals.get("infos") or [{}] * len(dones)
+
+        for done, info in zip(dones, infos):
+            if done:
+                pickups = sum(1 for x in info.get("pickups", []) if x)
+                deliveries = sum(1 for x in info.get("deliveries", []) if x)
+                delivered = info.get("delivered", 0)
+
+                self.pickups_history.append(pickups)
+                self.deliveries_history.append(deliveries)
+                self.delivered_history.append(delivered)
+
+        # Log rolling averages periodically
+        if self.n_calls % 1000 == 0 and len(self.pickups_history) > 0:
+            self.logger.record(
+                "metrics/pickups_per_episode",
+                sum(self.pickups_history) / len(self.pickups_history),
+            )
+            self.logger.record(
+                "metrics/deliveries_per_episode",
+                sum(self.deliveries_history) / len(self.deliveries_history),
+            )
+            self.logger.record(
+                "metrics/cartons_delivered_per_episode",
+                sum(self.delivered_history) / len(self.delivered_history),
+            )
 
         return True
 
@@ -260,16 +321,22 @@ def load_policy(model_path: str, device: str = "cpu", recurrent: bool | None = N
 
     if recurrent:
         from sb3_contrib import RecurrentPPO
+
         algo = RecurrentPPO
     else:
         from stable_baselines3 import PPO
+
         algo = PPO
 
-    model = algo.load(model_path, device=device, custom_objects=INFERENCE_CUSTOM_OBJECTS)
+    model = algo.load(
+        model_path, device=device, custom_objects=INFERENCE_CUSTOM_OBJECTS
+    )
     return model, recurrent
 
 
-def make_env(difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: int | None = None):
+def make_env(
+    difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: int | None = None
+):
     """
     Env factory for SubprocVecEnv.
 
@@ -287,6 +354,7 @@ def make_env(difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: in
     that wrapper on top of this factory, not inside it, so the greedy baseline (step 5)
     and the evaluation harness can still see the real joint env.
     """
+
     def _init():
         env = HiveMindMultiAgentEnv(
             render_mode=None, difficulty_level=difficulty_level, obs_dim=obs_dim
@@ -294,6 +362,7 @@ def make_env(difficulty_level: int = 1, obs_dim: int = DEFAULT_OBS_DIM, seed: in
         if seed is not None:
             env.reset(seed=seed)
         return env
+
     return _init
 
 
@@ -303,7 +372,9 @@ def get_device() -> str:
         cap = torch.cuda.get_device_capability()
         name = torch.cuda.get_device_name(0)
         if cap[0] >= 7:
-            print(f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) -> Using CUDA (cuDNN disabled for stability)")
+            print(
+                f"[Device] GPU: {name} (sm_{cap[0]}{cap[1]}) -> Using CUDA (cuDNN disabled for stability)"
+            )
             torch.backends.cudnn.enabled = False
             return "cuda"
         print(
