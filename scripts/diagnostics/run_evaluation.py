@@ -29,6 +29,7 @@ Usage:
     .venv\\Scripts\\python.exe scripts/run_evaluation.py --baseline random --episodes 5
     .venv\\Scripts\\python.exe scripts/run_evaluation.py --model models/xxx.zip --episodes 30
 """
+
 import argparse
 import json
 import math
@@ -36,7 +37,7 @@ import os
 import statistics
 import sys
 import time
-from datetime import date
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -44,7 +45,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from hivemind_env.env import DEFAULT_OBS_DIM, OBS_DIM_V3, HiveMindMultiAgentEnv
+from hivemind_env.env import DEFAULT_OBS_DIM, HiveMindMultiAgentEnv
 from hivemind_env.greedy import GreedyController
 from hivemind_env.training import (
     CURRICULUM_CARTONS,
@@ -58,7 +59,15 @@ from hivemind_env.training import (
 # import moved into _load_model(). It stays there: evaluation of a --baseline run should
 # not need the network module at all.
 
-ACTION_NAMES = ["Forward", "Backward", "Turn Left", "Turn Right", "Pick Up", "Drop Off", "Stay"]
+ACTION_NAMES = [
+    "Forward",
+    "Backward",
+    "Turn Left",
+    "Turn Right",
+    "Pick Up",
+    "Drop Off",
+    "Stay",
+]
 
 # PORT NOTE: LEVEL_LABELS described obstacle density on the single-agent branch. Here the
 # ladder is carton count, mirroring hivemind_env.training.CURRICULUM_CARTONS so the
@@ -98,7 +107,9 @@ def classify(terminated, info, final_reward):
     return "TIMEOUT"
 
 
-def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start, action_space):
+def _joint_action(
+    model, obs, policy_mode, recurrent, lstm_states, episode_start, action_space
+):
     """
     Turn whatever the policy is into the MultiDiscrete([7,7,7,7]) the env wants.
 
@@ -130,8 +141,10 @@ def _joint_action(model, obs, policy_mode, recurrent, lstm_states, episode_start
     def _predict(single_obs, state):
         if recurrent:
             return model.predict(
-                single_obs, state=state,
-                episode_start=np.array([episode_start]), deterministic=True,
+                single_obs,
+                state=state,
+                episode_start=np.array([episode_start]),
+                deterministic=True,
             )
         act, _ = model.predict(single_obs, deterministic=True)
         return act, None
@@ -158,8 +171,16 @@ def _distance_travelled(prev_positions, positions):
     return total
 
 
-def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_mode,
-                   max_steps=None, verbose=True):
+def evaluate_level(
+    model,
+    difficulty,
+    num_episodes,
+    obs_dim,
+    recurrent,
+    policy_mode,
+    max_steps=None,
+    verbose=True,
+):
     # `num_cartons` is what makes the level real, and it was missing until 2026-08-31.
     # This passed difficulty_level only - which the world stores and nothing reads - so
     # every level here ran the full 12 cartons while the summary table dutifully
@@ -170,7 +191,9 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
     # whatever its label said.
     cartons = CURRICULUM_CARTONS.get(difficulty, difficulty)
     env = HiveMindMultiAgentEnv(
-        render_mode=None, difficulty_level=difficulty, obs_dim=obs_dim,
+        render_mode=None,
+        difficulty_level=difficulty,
+        obs_dim=obs_dim,
         num_cartons=cartons,
     )
     # PORT NOTE - this guard is new and it is not optional.
@@ -213,7 +236,12 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
 
         while True:
             action, lstm_states = _joint_action(
-                actor, obs, policy_mode, recurrent, lstm_states, episode_start,
+                actor,
+                obs,
+                policy_mode,
+                recurrent,
+                lstm_states,
+                episode_start,
                 env.action_space,
             )
             episode_start = False
@@ -246,20 +274,30 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         # report completion rate alongside makespan, never makespan alone.
         makespan = steps if outcome == "COMPLETE" else None
 
-        episodes.append({
-            "episode": ep + 1, "seed": seed, "outcome": outcome,
-            "makespan": makespan, "steps": steps,
-            "delivered": int(delivered), "cartons": int(cartons_at_start),
-            "distance": round(distance, 2), "collisions": collisions,
-            "reward_total": round(float(agent_rewards.sum()), 2),
-            "reward_per_agent": [round(float(r), 2) for r in agent_rewards],
-        })
+        episodes.append(
+            {
+                "episode": ep + 1,
+                "seed": seed,
+                "outcome": outcome,
+                "makespan": makespan,
+                "steps": steps,
+                "delivered": int(delivered),
+                "cartons": int(cartons_at_start),
+                "distance": round(distance, 2),
+                "collisions": collisions,
+                "reward_total": round(float(agent_rewards.sum()), 2),
+                "reward_per_agent": [round(float(r), 2) for r in agent_rewards],
+            }
+        )
         if verbose:
             ms = f"{makespan:4d}" if makespan is not None else "   -"
-            print(f"  Ep {ep+1:02d} | seed {seed:<5} | {outcome:<20} | "
-                  f"Makespan: {ms} | Steps: {steps:4d} | "
-                  f"Delivered: {delivered:2d}/{cartons_at_start} | "
-                  f"Dist: {distance:6.1f}m | Coll: {collisions:3d}", flush=True)
+            print(
+                f"  Ep {ep + 1:02d} | seed {seed:<5} | {outcome:<20} | "
+                f"Makespan: {ms} | Steps: {steps:4d} | "
+                f"Delivered: {delivered:2d}/{cartons_at_start} | "
+                f"Dist: {distance:6.1f}m | Coll: {collisions:3d}",
+                flush=True,
+            )
 
     env.close()
 
@@ -267,7 +305,9 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
     completed = [e for e in episodes if e["outcome"] == "COMPLETE"]
     makespans = [e["makespan"] for e in completed]
     lo, hi = wilson_interval(len(completed), n)
-    delivered_frac = [e["delivered"] / e["cartons"] if e["cartons"] else 0.0 for e in episodes]
+    delivered_frac = [
+        e["delivered"] / e["cartons"] if e["cartons"] else 0.0 for e in episodes
+    ]
 
     return {
         "difficulty": difficulty,
@@ -285,9 +325,15 @@ def evaluate_level(model, difficulty, num_episodes, obs_dim, recurrent, policy_m
         "avg_distance": round(float(np.mean([e["distance"] for e in episodes])), 1),
         "avg_collisions": round(float(np.mean([e["collisions"] for e in episodes])), 2),
         "avg_steps": round(float(np.mean([e["steps"] for e in episodes])), 1),
-        "avg_reward_total": round(float(np.mean([e["reward_total"] for e in episodes])), 2),
-        "std_reward_total": round(float(np.std([e["reward_total"] for e in episodes])), 2),
-        "action_distribution": {ACTION_NAMES[i]: int(action_counts[i]) for i in range(7)},
+        "avg_reward_total": round(
+            float(np.mean([e["reward_total"] for e in episodes])), 2
+        ),
+        "std_reward_total": round(
+            float(np.std([e["reward_total"] for e in episodes])), 2
+        ),
+        "action_distribution": {
+            ACTION_NAMES[i]: int(action_counts[i]) for i in range(7)
+        },
         "episodes": episodes,
     }
 
@@ -300,8 +346,10 @@ def _load_model(path, policy_mode):
         # before load. Lazy because models.py is empty until roadmap step 6.
         from hivemind_env.models import CustomCombinedExtractor  # noqa: F401
     except ImportError:
-        print("  WARNING: hivemind_env/models.py is empty (roadmap step 6). If the saved\n"
-              "           policy used a custom feature extractor, SB3 will fail to unpickle it.")
+        print(
+            "  WARNING: hivemind_env/models.py is empty (roadmap step 6). If the saved\n"
+            "           policy used a custom feature extractor, SB3 will fail to unpickle it."
+        )
     return load_policy(path, device="cpu")
 
 
@@ -309,29 +357,53 @@ def main():
     parser = argparse.ArgumentParser(
         description="Evaluate a policy on the multi-agent warehouse across curriculum levels"
     )
-    parser.add_argument("--model", default=None,
-                        help="Path to a saved SB3 policy. Omit and pass --baseline instead.")
-    parser.add_argument("--baseline", choices=["random", "greedy"], default=None,
-                        help="Run without a learned model. 'greedy' is the scripted "
-                             "controller whose makespan every policy is quoted against "
-                             "(roadmap step 5). 'random' samples the action space and "
-                             "only exercises the harness.")
-    parser.add_argument("--policy-mode", choices=["shared", "joint"], default="shared",
-                        help="shared: one Discrete(7) policy queried per robot (roadmap "
-                             "step 6 default). joint: one MultiDiscrete policy.")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Path to a saved SB3 policy. Omit and pass --baseline instead.",
+    )
+    parser.add_argument(
+        "--baseline",
+        choices=["random", "greedy"],
+        default=None,
+        help="Run without a learned model. 'greedy' is the scripted "
+        "controller whose makespan every policy is quoted against "
+        "(roadmap step 5). 'random' samples the action space and "
+        "only exercises the harness.",
+    )
+    parser.add_argument(
+        "--policy-mode",
+        choices=["shared", "joint"],
+        default="shared",
+        help="shared: one Discrete(7) policy queried per robot (roadmap "
+        "step 6 default). joint: one MultiDiscrete policy.",
+    )
     parser.add_argument("--episodes", type=int, default=30)
-    parser.add_argument("--obs-dim", type=int, default=DEFAULT_OBS_DIM,
-                        help="Asserted against the pinned width in env.py; env.py "
-                             "rejects a mismatch rather than building a bad env.")
-    parser.add_argument("--max-steps", type=int, default=None,
-                        help="Hard per-episode step budget enforced by the harness. "
-                             "Defaults to env.max_steps (2000). Lower it for smoke runs - "
-                             "the env does not raise truncated yet (roadmap step 4), so "
-                             "without this the harness would run forever.")
-    parser.add_argument("--levels", type=int, nargs="+", default=sorted(CURRICULUM_CARTONS))
+    parser.add_argument(
+        "--obs-dim",
+        type=int,
+        default=DEFAULT_OBS_DIM,
+        help="Asserted against the pinned width in env.py; env.py "
+        "rejects a mismatch rather than building a bad env.",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Hard per-episode step budget enforced by the harness. "
+        "Defaults to env.max_steps (2000). Lower it for smoke runs - "
+        "the env does not raise truncated yet (roadmap step 4), so "
+        "without this the harness would run forever.",
+    )
+    parser.add_argument(
+        "--levels", type=int, nargs="+", default=sorted(CURRICULUM_CARTONS)
+    )
     parser.add_argument("--out", default="docs_analysis/evaluation_results.json")
-    parser.add_argument("--force", action="store_true",
-                        help="Overwrite --out even if it holds a larger, more reliable run.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite --out even if it holds a larger, more reliable run.",
+    )
     args = parser.parse_args()
 
     if (args.model is None) == (args.baseline is None):
@@ -364,16 +436,20 @@ def main():
     print("  HiveMind Multi-Agent Policy Evaluation")
     print("=" * 84)
     if args.model:
-        print(f"  Model      : {args.model} ({os.path.getsize(args.model)/1024/1024:.1f} MB)")
+        print(
+            f"  Model      : {args.model} ({os.path.getsize(args.model) / 1024 / 1024:.1f} MB)"
+        )
     else:
         print(f"  Model      : none - {args.baseline} baseline")
     if args.baseline == "greedy":
-        print("  Note       : this run produces THE reference makespan. Every later "
-              "policy\n               result should be quoted against it.")
+        print(
+            "  Note       : this run produces THE reference makespan. Every later "
+            "policy\n               result should be quoted against it."
+        )
     print(f"  Policy mode: {policy_mode}")
     print(f"  Agents     : {NUM_AGENTS}")
     print(f"  Episodes   : {args.episodes} per level (fixed seeds, reproducible)")
-    print(f"  Date       : {date.today().isoformat()}", flush=True)
+    print(f"  Date       : {datetime.now(timezone.utc).date().isoformat()}", flush=True)
 
     # Honest banner: refuse to imply these numbers mean anything they cannot yet mean.
     probe = HiveMindMultiAgentEnv(render_mode=None)
@@ -381,13 +457,21 @@ def main():
     obs_missing = len(obs) == 0
     probe.close()
     if obs_missing:
-        print("\n  !! WARNING: _get_obs() returns an empty list (roadmap step 3 not done),")
-        print("     and reward/termination are hard-coded (step 4 not done). Every episode")
-        print("     will run to max_steps with zero reward. These numbers measure nothing")
+        print(
+            "\n  !! WARNING: _get_obs() returns an empty list (roadmap step 3 not done),"
+        )
+        print(
+            "     and reward/termination are hard-coded (step 4 not done). Every episode"
+        )
+        print(
+            "     will run to max_steps with zero reward. These numbers measure nothing"
+        )
         print("     about a policy - they only prove the harness executes.")
         if args.model:
-            sys.exit("\nERROR: refusing to evaluate a model against an empty observation.\n"
-                     "       Finish roadmap step 3 first, or use --baseline random.")
+            sys.exit(
+                "\nERROR: refusing to evaluate a model against an empty observation.\n"
+                "       Finish roadmap step 3 first, or use --baseline random."
+            )
 
     model, recurrent = _load_model(args.model, policy_mode)
     if model is not None:
@@ -397,43 +481,70 @@ def main():
     results = {}
     for level in args.levels:
         label = LEVEL_LABELS.get(level, f"level {level}")
-        print(f"\n{'='*84}\n  Level {level} - {label}\n{'='*84}", flush=True)
+        print(f"\n{'=' * 84}\n  Level {level} - {label}\n{'=' * 84}", flush=True)
         results[level] = evaluate_level(
-            model, level, args.episodes, args.obs_dim, recurrent, policy_mode,
+            model,
+            level,
+            args.episodes,
+            args.obs_dim,
+            recurrent,
+            policy_mode,
             max_steps=args.max_steps,
         )
         r = results[level]
         lo, hi = r["completion_ci95"]
-        ms = f"{r['avg_makespan']:.0f}" if r["avg_makespan"] is not None else "n/a (no completions)"
+        ms = (
+            f"{r['avg_makespan']:.0f}"
+            if r["avg_makespan"] is not None
+            else "n/a (no completions)"
+        )
         print(f"\n  Makespan  : {ms}   (headline - lower is better)")
-        print(f"  Completed : {r['completion_rate']*100:.0f}%  (95% CI {lo*100:.0f}-{hi*100:.0f}%)"
-              f"   Delivered: {r['avg_delivered_fraction']*100:.0f}% of cartons")
-        print(f"  Distance  : {r['avg_distance']:.1f} m    Collisions: {r['avg_collisions']:.1f}")
-        print(f"  Reward    : {r['avg_reward_total']:.2f} +/- {r['std_reward_total']:.2f} "
-              f"(summed over {NUM_AGENTS} agents)")
+        print(
+            f"  Completed : {r['completion_rate'] * 100:.0f}%  (95% CI {lo * 100:.0f}-{hi * 100:.0f}%)"
+            f"   Delivered: {r['avg_delivered_fraction'] * 100:.0f}% of cartons"
+        )
+        print(
+            f"  Distance  : {r['avg_distance']:.1f} m    Collisions: {r['avg_collisions']:.1f}"
+        )
+        print(
+            f"  Reward    : {r['avg_reward_total']:.2f} +/- {r['std_reward_total']:.2f} "
+            f"(summed over {NUM_AGENTS} agents)"
+        )
         print(f"  Steps     : mean {r['avg_steps']:.0f}", flush=True)
 
     elapsed = time.time() - started
     overall_eps = sum(results[l]["num_episodes"] for l in results)
-    overall_done = sum(results[l]["completion_rate"] * results[l]["num_episodes"] for l in results)
+    overall_done = sum(
+        results[l]["completion_rate"] * results[l]["num_episodes"] for l in results
+    )
 
-    print(f"\n{'='*84}\n  CROSS-LEVEL SUMMARY\n{'='*84}")
-    print(f"  {'Level':<7}{'Cartons':>9}{'Makespan':>10}{'Complete':>10}{'95% CI':>14}"
-          f"{'Dist(m)':>9}{'Coll':>7}{'AvgRew':>9}")
-    print(f"  {'-'*75}")
+    print(f"\n{'=' * 84}\n  CROSS-LEVEL SUMMARY\n{'=' * 84}")
+    print(
+        f"  {'Level':<7}{'Cartons':>9}{'Makespan':>10}{'Complete':>10}{'95% CI':>14}"
+        f"{'Dist(m)':>9}{'Coll':>7}{'AvgRew':>9}"
+    )
+    print(f"  {'-' * 75}")
     for level in args.levels:
         r = results[level]
         lo, hi = r["completion_ci95"]
         ms = f"{r['avg_makespan']:.0f}" if r["avg_makespan"] is not None else "-"
-        print(f"  {level:<7}{CURRICULUM_CARTONS.get(level, '?'):>9}{ms:>10}"
-              f"{r['completion_rate']*100:>9.0f}%{f'{lo*100:.0f}-{hi*100:.0f}%':>14}"
-              f"{r['avg_distance']:>9.1f}{r['avg_collisions']:>7.1f}"
-              f"{r['avg_reward_total']:>9.2f}")
-    print(f"  {'-'*75}")
-    print(f"  Overall: {overall_done/overall_eps*100:.1f}% of {overall_eps} episodes completed")
-    print(f"  Wall clock: {elapsed/60:.1f} min")
-    print("\n  Compare avg_makespan against the greedy baseline (the project roadmap, step 5).")
-    print("  A learned policy that does not beat greedy makespan has not shown anything.")
+        print(
+            f"  {level:<7}{CURRICULUM_CARTONS.get(level, '?'):>9}{ms:>10}"
+            f"{r['completion_rate'] * 100:>9.0f}%{f'{lo * 100:.0f}-{hi * 100:.0f}%':>14}"
+            f"{r['avg_distance']:>9.1f}{r['avg_collisions']:>7.1f}"
+            f"{r['avg_reward_total']:>9.2f}"
+        )
+    print(f"  {'-' * 75}")
+    print(
+        f"  Overall: {overall_done / overall_eps * 100:.1f}% of {overall_eps} episodes completed"
+    )
+    print(f"  Wall clock: {elapsed / 60:.1f} min")
+    print(
+        "\n  Compare avg_makespan against the greedy baseline (the project roadmap, step 5)."
+    )
+    print(
+        "  A learned policy that does not beat greedy makespan has not shown anything."
+    )
 
     payload = {
         "model": args.model,
@@ -441,7 +552,7 @@ def main():
         "num_agents": NUM_AGENTS,
         "obs_dim": args.obs_dim,
         "episodes_per_level": args.episodes,
-        "date": date.today().isoformat(),
+        "date": datetime.now(timezone.utc).date().isoformat(),
         "observations_implemented": not obs_missing,
         "overall_completion_rate": round(overall_done / overall_eps, 4),
         "total_episodes": overall_eps,

@@ -40,10 +40,10 @@ well-converged policy that stands still.
 Passing these gates does NOT mean the policy will learn. It means the incentives are not
 the reason if it does not.
 """
+
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import sys
 
@@ -53,14 +53,14 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from hivemind_env.env import (  # noqa: E402
+from hivemind_env.env import (
     NUM_AGENTS,
     R_TIME_PENALTY,
     SHAPING_SCALE_DEFAULT,
     SHARED_WEIGHT,
     HiveMindMultiAgentEnv,
 )
-from hivemind_env.greedy import GreedyController  # noqa: E402
+from hivemind_env.greedy import GreedyController
 
 STAY_ACTION = 6
 
@@ -70,7 +70,7 @@ class Tally:
 
     def __init__(self, name):
         self.name = name
-        self.reward = []          # mean over agents, summed over the episode
+        self.reward = []  # mean over agents, summed over the episode
         self.length = []
         self.completed = 0
         self.cc_robot = 0
@@ -79,7 +79,7 @@ class Tally:
         self.deliveries = 0
         self.invalid = 0
         self.episodes = 0
-        self.pickup_rewards = []   # total reward on the step an agent picked up
+        self.pickup_rewards = []  # total reward on the step an agent picked up
         self.pickup_shaping = []
         self.deliver_rewards = []
         self.deliver_shaping = []
@@ -87,20 +87,25 @@ class Tally:
     def row(self):
         n = max(self.episodes, 1)
         steps = max(sum(self.length), 1)
-        return dict(
-            name=self.name,
-            reward=float(np.mean(self.reward)) if self.reward else float("nan"),
-            per_step=(float(np.sum(self.reward)) / steps) if self.reward else float("nan"),
-            length=float(np.mean(self.length)) if self.length else float("nan"),
-            completed=self.completed,
-            episodes=self.episodes,
-            cc_robot=self.cc_robot / n,
-            cc_obstacle=self.cc_obstacle / n,
-            collision_cost=(self.cc_robot + self.cc_obstacle) / n * -5.0 * SHARED_WEIGHT,
-            pickups=self.pickups / n,
-            deliveries=self.deliveries / n,
-            invalid=self.invalid / n,
-        )
+        return {
+            "name": self.name,
+            "reward": float(np.mean(self.reward)) if self.reward else float("nan"),
+            "per_step": (float(np.sum(self.reward)) / steps)
+            if self.reward
+            else float("nan"),
+            "length": float(np.mean(self.length)) if self.length else float("nan"),
+            "completed": self.completed,
+            "episodes": self.episodes,
+            "cc_robot": self.cc_robot / n,
+            "cc_obstacle": self.cc_obstacle / n,
+            "collision_cost": (self.cc_robot + self.cc_obstacle)
+            / n
+            * -5.0
+            * SHARED_WEIGHT,
+            "pickups": self.pickups / n,
+            "deliveries": self.deliveries / n,
+            "invalid": self.invalid / n,
+        }
 
 
 def rollout(policy, seeds, num_cartons, shaping, scale):
@@ -109,8 +114,12 @@ def rollout(policy, seeds, num_cartons, shaping, scale):
     rng = np.random.default_rng(12345)
 
     for s in seeds:
-        env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons,
-                                    shaping=shaping, shaping_scale=scale)
+        env = HiveMindMultiAgentEnv(
+            render_mode=None,
+            num_cartons=num_cartons,
+            shaping=shaping,
+            shaping_scale=scale,
+        )
         env.reset(seed=s)
         ctrl = GreedyController(env) if policy == "greedy" else None
         ep = np.zeros(NUM_AGENTS)
@@ -170,8 +179,9 @@ def approach_gain(num_cartons, shaping, scale):
     the breakdown. This is the number that has to beat the time penalty for approaching
     to be worth doing at all.
     """
-    env = HiveMindMultiAgentEnv(render_mode=None, num_cartons=num_cartons,
-                               shaping=shaping, shaping_scale=scale)
+    env = HiveMindMultiAgentEnv(
+        render_mode=None, num_cartons=num_cartons, shaping=shaping, shaping_scale=scale
+    )
     env.reset(seed=1000)
     ctrl = GreedyController(env)
     gains = []
@@ -232,46 +242,65 @@ def main():
     ap.add_argument("--num-cartons", type=int, default=4)
     ap.add_argument("--episodes", type=int, default=8)
     ap.add_argument("--seed", type=int, default=1000)
-    ap.add_argument("--shaping-scale", type=float, default=SHAPING_SCALE_DEFAULT,
-                    help="Sweep this to retune the shaping without editing env.py. "
-                         "Raising it must not break the pickup gate below.")
-    ap.add_argument("--no-shaping", action="store_true",
-                    help="Measure the specification's reward exactly, shaping removed.")
+    ap.add_argument(
+        "--shaping-scale",
+        type=float,
+        default=SHAPING_SCALE_DEFAULT,
+        help="Sweep this to retune the shaping without editing env.py. "
+        "Raising it must not break the pickup gate below.",
+    )
+    ap.add_argument(
+        "--no-shaping",
+        action="store_true",
+        help="Measure the specification's reward exactly, shaping removed.",
+    )
     args = ap.parse_args()
 
     shaping = not args.no_shaping
     seeds = list(range(args.seed, args.seed + args.episodes))
 
     print("=" * 92)
-    print(f"  Incentive diagnostic - {args.num_cartons} cartons, {args.episodes} seeds "
-          f"({seeds[0]}-{seeds[-1]}), shaping "
-          f"{('scale ' + str(args.shaping_scale)) if shaping else 'OFF'}")
+    print(
+        f"  Incentive diagnostic - {args.num_cartons} cartons, {args.episodes} seeds "
+        f"({seeds[0]}-{seeds[-1]}), shaping "
+        f"{('scale ' + str(args.shaping_scale)) if shaping else 'OFF'}"
+    )
     print("=" * 92)
 
-    tallies = [rollout(p, seeds, args.num_cartons, shaping, args.shaping_scale)
-               for p in ("stay", "random", "greedy")]
+    tallies = [
+        rollout(p, seeds, args.num_cartons, shaping, args.shaping_scale)
+        for p in ("stay", "random", "greedy")
+    ]
     rows = [t.row() for t in tallies]
 
-    print(f"\n{'policy':>8} {'reward':>9} {'/step':>8} {'ep_len':>7} {'done':>7} "
-          f"{'coll rr':>8} {'coll obs':>9} {'coll cost':>10} {'pickup':>7} {'deliv':>7} {'invalid':>8}")
+    print(
+        f"\n{'policy':>8} {'reward':>9} {'/step':>8} {'ep_len':>7} {'done':>7} "
+        f"{'coll rr':>8} {'coll obs':>9} {'coll cost':>10} {'pickup':>7} {'deliv':>7} {'invalid':>8}"
+    )
     print("-" * 92)
     for r in rows:
-        print(f"{r['name']:>8} {r['reward']:>9.1f} {r['per_step']:>8.3f} "
-              f"{r['length']:>7.1f} {r['completed']:>3}/{r['episodes']:<3} "
-              f"{r['cc_robot']:>8.1f} {r['cc_obstacle']:>9.1f} {r['collision_cost']:>10.1f} "
-              f"{r['pickups']:>7.1f} {r['deliveries']:>7.1f} {r['invalid']:>8.1f}")
+        print(
+            f"{r['name']:>8} {r['reward']:>9.1f} {r['per_step']:>8.3f} "
+            f"{r['length']:>7.1f} {r['completed']:>3}/{r['episodes']:<3} "
+            f"{r['cc_robot']:>8.1f} {r['cc_obstacle']:>9.1f} {r['collision_cost']:>10.1f} "
+            f"{r['pickups']:>7.1f} {r['deliveries']:>7.1f} {r['invalid']:>8.1f}"
+        )
 
     stay, rnd, greedy = rows
 
     print("\n  the two transitions the task turns on (greedy, per event)")
     print("  " + "-" * 62)
     g = tallies[2]
-    for label, rew, sh in (("PICKUP", g.pickup_rewards, g.pickup_shaping),
-                           ("DELIVER", g.deliver_rewards, g.deliver_shaping)):
+    for label, rew, sh in (
+        ("PICKUP", g.pickup_rewards, g.pickup_shaping),
+        ("DELIVER", g.deliver_rewards, g.deliver_shaping),
+    ):
         if rew:
-            print(f"  {label:>8}: total reward {np.mean(rew):+8.3f}   "
-                  f"(shaping {np.mean(sh):+7.3f})   over {len(rew)} events   "
-                  f"min {min(rew):+.3f}")
+            print(
+                f"  {label:>8}: total reward {np.mean(rew):+8.3f}   "
+                f"(shaping {np.mean(sh):+7.3f})   over {len(rew)} events   "
+                f"min {min(rew):+.3f}"
+            )
         else:
             print(f"  {label:>8}: never happened")
 
@@ -301,8 +330,10 @@ def main():
     print(f"  expected collision cost  : {p_coll * coll_cost:+8.3f}")
     print(f"  EXPECTED VALUE OF MOVING : {ev_move:+8.3f}   <- must be positive")
     if gain > 0:
-        print(f"  one collision event      : {coll_cost:+8.3f}"
-              f"  = {abs(coll_cost / gain):.0f} cells of progress")
+        print(
+            f"  one collision event      : {coll_cost:+8.3f}"
+            f"  = {abs(coll_cost / gain):.0f} cells of progress"
+        )
 
     # ---- gates -----------------------------------------------------------------
     print("\n  gates")
@@ -311,14 +342,18 @@ def main():
 
     worst_pickup = min(g.pickup_rewards) if g.pickup_rewards else float("nan")
     ok = bool(g.pickup_rewards) and worst_pickup > 0
-    print(f"  [{'PASS' if ok else 'FAIL'}] a pickup pays  "
-          f"(worst {worst_pickup:+.3f}, needs > 0)")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] a pickup pays  "
+        f"(worst {worst_pickup:+.3f}, needs > 0)"
+    )
     if not ok:
         fails.append("pickup does not pay - the policy is punished for the key action")
 
     ok = bool(g.deliver_rewards) and min(g.deliver_rewards) > 0
-    print(f"  [{'PASS' if ok else 'FAIL'}] a delivery pays "
-          f"(worst {min(g.deliver_rewards) if g.deliver_rewards else float('nan'):+.3f}, needs > 0)")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] a delivery pays "
+        f"(worst {min(g.deliver_rewards) if g.deliver_rewards else float('nan'):+.3f}, needs > 0)"
+    )
     if not ok:
         fails.append("delivery does not pay")
 
@@ -326,33 +361,44 @@ def main():
     # descent for PPO is to stop moving - which is exactly what it did, twice.
     margin = rnd["reward"] - stay["reward"]
     ok = margin > -5.0 * abs(stay["reward"]) - 50.0
-    print(f"  [{'PASS' if ok else 'FAIL'}] exploring is survivable "
-          f"(random {rnd['reward']:+.1f} vs stay {stay['reward']:+.1f}, "
-          f"gap {margin:+.1f})")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] exploring is survivable "
+        f"(random {rnd['reward']:+.1f} vs stay {stay['reward']:+.1f}, "
+        f"gap {margin:+.1f})"
+    )
     if not ok:
         fails.append("random is far below stay - standing still is the easy optimum")
 
     ok = greedy["reward"] > stay["reward"] and greedy["completed"] == greedy["episodes"]
-    print(f"  [{'PASS' if ok else 'FAIL'}] the good policy wins "
-          f"(greedy {greedy['reward']:+.1f}, {greedy['completed']}/{greedy['episodes']} complete)")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] the good policy wins "
+        f"(greedy {greedy['reward']:+.1f}, {greedy['completed']}/{greedy['episodes']} complete)"
+    )
     if not ok:
         fails.append("greedy does not dominate - something is wrong beyond the reward")
 
     ok = greedy["cc_obstacle"] < 0.5
-    print(f"  [{'PASS' if ok else 'FAIL'}] the good policy does not hit shelves "
-          f"({greedy['cc_obstacle']:.1f} per episode)")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] the good policy does not hit shelves "
+        f"({greedy['cc_obstacle']:.1f} per episode)"
+    )
     if not ok:
-        fails.append("greedy hits shelving - the blocked-cell set disagrees with physics")
+        fails.append(
+            "greedy hits shelving - the blocked-cell set disagrees with physics"
+        )
 
     # The gate the first canary would have failed before it was ever launched.
     ok = ev_move > 0.05
-    print(f"  [{'PASS' if ok else 'FAIL'}] MOVING IS WORTH IT "
-          f"(expected value {ev_move:+.3f}, needs > +0.05)")
+    print(
+        f"  [{'PASS' if ok else 'FAIL'}] MOVING IS WORTH IT "
+        f"(expected value {ev_move:+.3f}, needs > +0.05)"
+    )
     if not ok:
         fails.append(
             f"a movement action is worth {ev_move:+.3f} - the policy will learn to "
             f"turn, grab and stand still, because those cannot collide. Raise "
-            f"--shaping-scale until this clears.")
+            f"--shaping-scale until this clears."
+        )
 
     print()
     if fails:
@@ -360,7 +406,9 @@ def main():
         for f in fails:
             print(f"    - {f}")
         return 1
-    print("  Incentives are sane. This does not promise the policy will learn - it means")
+    print(
+        "  Incentives are sane. This does not promise the policy will learn - it means"
+    )
     print("  the reward is not the reason if it does not.")
     return 0
 

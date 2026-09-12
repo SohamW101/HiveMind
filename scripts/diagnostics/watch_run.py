@@ -20,6 +20,7 @@ WHAT TO WATCH
     rew       mean episode reward per slot. Rising is necessary, not sufficient: a
               policy that learns to stand still also makes this rise.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,14 @@ import time
 ROW = re.compile(r"\|\s*(\w+)\s*\|\s*([-\d.e+]+)\s*\|")
 TOTAL = re.compile(r"timesteps\s*:\s*([\d,]+)")
 
-WATCHED = ("total_timesteps", "ep_len_mean", "ep_rew_mean", "success_rate", "fps",
-           "time_elapsed")
+WATCHED = (
+    "total_timesteps",
+    "ep_len_mean",
+    "ep_rew_mean",
+    "success_rate",
+    "fps",
+    "time_elapsed",
+)
 
 
 def human(n):
@@ -43,8 +50,11 @@ def main():
     ap = argparse.ArgumentParser(description="Live compact view of a training log")
     ap.add_argument("logfile")
     ap.add_argument("--poll", type=float, default=1.0, help="Seconds between reads.")
-    ap.add_argument("--from-start", action="store_true",
-                    help="Replay the whole log first instead of following the tail.")
+    ap.add_argument(
+        "--from-start",
+        action="store_true",
+        help="Replay the whole log first instead of following the tail.",
+    )
     args = ap.parse_args()
 
     while not os.path.exists(args.logfile):
@@ -87,8 +97,10 @@ def main():
             last_step = step
 
             if not printed_header:
-                print(f"{'steps':>18}  {'pct':>4}  {'len':>7}  {'success':>8}  "
-                      f"{'reward':>9}  {'fps':>5}  {'eta':>6}")
+                print(
+                    f"{'steps':>18}  {'pct':>4}  {'len':>7}  {'success':>8}  "
+                    f"{'reward':>9}  {'fps':>5}  {'eta':>6}"
+                )
                 print("-" * 68)
                 printed_header = True
 
@@ -109,12 +121,14 @@ def main():
                 elif total and step > total * 0.15:
                     flag = "  <- nothing finishing yet"
 
-            print(f"{human(int(step)):>18}  {pct}  "
-                  f"{'' if ln is None else f'{ln:7.1f}'}  "
-                  f"{'' if sr is None else f'{sr:7.1%}'}  "
-                  f"{'' if rw is None else f'{rw:9.1f}'}  "
-                  f"{'' if fps is None else f'{fps:5.0f}'}  {eta:>6}{flag}",
-                  flush=True)
+            print(
+                f"{human(int(step)):>18}  {pct}  "
+                f"{'' if ln is None else f'{ln:7.1f}'}  "
+                f"{'' if sr is None else f'{sr:7.1%}'}  "
+                f"{'' if rw is None else f'{rw:9.1f}'}  "
+                f"{'' if fps is None else f'{fps:5.0f}'}  {eta:>6}{flag}",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":

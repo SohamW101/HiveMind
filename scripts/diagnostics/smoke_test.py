@@ -24,6 +24,7 @@ Step 3 already made that trip: its TODOs are now assertions.
 
     .venv\\Scripts\\python.exe smoke_test.py
 """
+
 import sys
 from pathlib import Path
 
@@ -46,10 +47,14 @@ def emit(line):
 # whole file exit(1) at the first import and no other check ever ran.
 try:
     import numpy as np
-    import torch  # noqa: F401  (imported for the version banner and the device probe)
+    import torch
     from stable_baselines3 import PPO  # noqa: F401
+    from stable_baselines3.common.callbacks import (  # noqa: F401
+        BaseCallback,
+        CheckpointCallback,
+    )
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor  # noqa: F401
-    from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback  # noqa: F401
+
     from hivemind_env.env import (
         OBS_DIM_V3,
         HiveMindMultiAgentEnv,
@@ -62,20 +67,23 @@ try:
         get_device,
         linear_schedule,
     )
+
     emit("PASS: All imports successful")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: Import error: {e}")
     OUT_PATH.write_text("\n".join(results), encoding="utf-8")
     print("\n".join(results))
     sys.exit(1)
 
-emit(f"  python={sys.version.split()[0]} numpy={np.__version__} torch={torch.__version__}")
+emit(
+    f"  python={sys.version.split()[0]} numpy={np.__version__} torch={torch.__version__}"
+)
 
 # -- Device check --------------------------------------------------------------
 try:
     device = get_device()
     emit(f"PASS: device={device}")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: Device check: {e}")
 
 # -- Environment ---------------------------------------------------------------
@@ -86,8 +94,12 @@ except Exception as e:
 # list, so it stays a TODO rather than a failure.
 env = None
 try:
-    env = HiveMindMultiAgentEnv(render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM)
-    emit(f"PASS: env constructed. num_agents={env.num_agents}, action_space={env.action_space}")
+    env = HiveMindMultiAgentEnv(
+        render_mode=None, difficulty_level=1, obs_dim=DEFAULT_OBS_DIM
+    )
+    emit(
+        f"PASS: env constructed. num_agents={env.num_agents}, action_space={env.action_space}"
+    )
     if env.num_agents != NUM_AGENTS:
         emit(f"FAIL: expected {NUM_AGENTS} agents, got {env.num_agents}")
 
@@ -95,15 +107,19 @@ try:
         emit(f"PASS: observation_space declared: {env.observation_space}")
         expected = (NUM_AGENTS, OBS_DIM_V3)
         if env.observation_space.shape != expected:
-            emit(f"FAIL: observation_space shape {env.observation_space.shape} "
-                 f"!= pinned {expected}")
+            emit(
+                f"FAIL: observation_space shape {env.observation_space.shape} "
+                f"!= pinned {expected}"
+            )
     else:
         emit("FAIL: no observation_space declared (roadmap step 3 regressed)")
 
     obs, info = env.reset(seed=0)
     emit(f"PASS: env.reset(seed=0) OK. info keys={sorted(info)}")
-    emit(f"  remaining_resources={info['remaining_resources']}, "
-         f"robot_pos[0]={tuple(round(v, 3) for v in info['robot_pos'][0])}")
+    emit(
+        f"  remaining_resources={info['remaining_resources']}, "
+        f"robot_pos[0]={tuple(round(v, 3) for v in info['robot_pos'][0])}"
+    )
 
     if len(info["robot_pos"]) != NUM_AGENTS:
         emit(f"FAIL: expected {NUM_AGENTS} robot poses, got {len(info['robot_pos'])}")
@@ -113,8 +129,10 @@ try:
     if len(obs) == 0:
         emit("FAIL: _get_obs() returned nothing (roadmap step 3 regressed)")
     else:
-        emit(f"PASS: obs {obs.shape} {obs.dtype}, "
-             f"range [{obs.min():.3f}, {obs.max():.3f}]")
+        emit(
+            f"PASS: obs {obs.shape} {obs.dtype}, "
+            f"range [{obs.min():.3f}, {obs.max():.3f}]"
+        )
         if not env.observation_space.contains(obs):
             emit("FAIL: observation is outside its own observation_space")
         else:
@@ -126,7 +144,7 @@ try:
         emit(f"PASS: info exposes {len(info['lidar_distances'])} lidar distances")
     else:
         emit("FAIL: LiDAR missing from info - it is part of observation V3")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: env.reset(): {type(e).__name__}: {e}")
 
 # -- Steps ---------------------------------------------------------------------
@@ -142,8 +160,10 @@ if env is not None:
             action = env.action_space.sample()
             obs, reward, term, trunc, info = env.step(action)
             rewards.append(reward)
-            emit(f"  Step {i+1}: action={list(map(int, action))} reward={reward} "
-                 f"term={term} trunc={trunc} remaining={info['remaining_resources']}")
+            emit(
+                f"  Step {i + 1}: action={list(map(int, action))} reward={reward} "
+                f"term={term} trunc={trunc} remaining={info['remaining_resources']}"
+            )
             if term or trunc:
                 obs, info = env.reset()
         emit(f"PASS: 5 steps OK. Per-agent rewards: {rewards[-1]}")
@@ -154,8 +174,10 @@ if env is not None:
             emit("PASS: rewards are non-zero and per-agent")
         if env.current_step >= env.max_steps:
             emit("FAIL: step budget exhausted during a 5-step smoke test")
-        emit(f"PASS: current_step advanced to {env.current_step} (max_steps={env.max_steps})")
-    except Exception as e:
+        emit(
+            f"PASS: current_step advanced to {env.current_step} (max_steps={env.max_steps})"
+        )
+    except Exception as e:  # noqa: BLE001
         emit(f"FAIL: env.step(): {type(e).__name__}: {e}")
     finally:
         # PORT NOTE: the single-agent env guarded close() against a double disconnect and
@@ -168,9 +190,11 @@ if env is not None:
         try:
             env.close()
             emit("PASS: env.close() is idempotent")
-        except Exception as e:
-            emit(f"TODO: env.close() is NOT idempotent - second call raises "
-                 f"{type(e).__name__}: {e} (fix in env.py: guard on a _closed flag)")
+        except Exception as e:  # noqa: BLE001
+            emit(
+                f"TODO: env.close() is NOT idempotent - second call raises "
+                f"{type(e).__name__}: {e} (fix in env.py: guard on a _closed flag)"
+            )
 
 # -- Termination wiring ---------------------------------------------------------
 try:
@@ -185,7 +209,7 @@ try:
         emit("PASS: truncation fires at max_steps")
     else:
         emit("FAIL: max_steps is not enforced (roadmap step 4 regressed)")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: could not read env.py: {e}")
 
 # -- Feature extractor wiring ---------------------------------------------------
@@ -194,22 +218,27 @@ except Exception as e:
 # forty minutes into a training run.
 try:
     import torch
+
     from hivemind_env.models import HiveMindExtractor
+
     probe = HiveMindMultiAgentEnv(render_mode=None)
     single = probe.observation_space  # (num_agents, obs_dim)
     from gymnasium import spaces
+
     flat = spaces.Box(low=-1.0, high=1.0, shape=(OBS_DIM_V3,), dtype=np.float32)
     ex = HiveMindExtractor(flat, features_dim=256)
     out = ex(torch.zeros(2, OBS_DIM_V3))
     probe.close()
     if tuple(out.shape) == (2, 256):
-        emit(f"PASS: HiveMindExtractor builds and runs "
-             f"({sum(q.numel() for q in ex.parameters()):,} params)")
+        emit(
+            f"PASS: HiveMindExtractor builds and runs "
+            f"({sum(q.numel() for q in ex.parameters()):,} params)"
+        )
     else:
         emit(f"FAIL: extractor emitted {tuple(out.shape)}, expected (2, 256)")
 except ImportError as e:
     emit(f"FAIL: models import: {e}")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: extractor build: {type(e).__name__}: {e}")
 
 # -- Greedy baseline ------------------------------------------------------------
@@ -219,6 +248,7 @@ except Exception as e:
 # that was quoted against it is invalid.
 try:
     from hivemind_env.greedy import GreedyController
+
     genv = HiveMindMultiAgentEnv(render_mode=None)
     genv.reset(seed=1000)
     ctrl = GreedyController(genv)
@@ -231,15 +261,89 @@ try:
     steps = genv.current_step
     genv.close()
     if term and ginfo["delivered"] == 12:
-        emit(f"PASS: greedy baseline completes seed 1000 in {steps} steps "
-             f"(reference mean is 98)")
+        emit(
+            f"PASS: greedy baseline completes seed 1000 in {steps} steps "
+            f"(reference mean is 98)"
+        )
         if steps > 150:
-            emit(f"FAIL: greedy took {steps} steps, far above the ~98 reference - "
-                 f"something regressed")
+            emit(
+                f"FAIL: greedy took {steps} steps, far above the ~98 reference - "
+                f"something regressed"
+            )
     else:
         emit(f"FAIL: greedy delivered {ginfo['delivered']}/12 in {steps} steps")
-except Exception as e:
+
+    # Greedy should also run when communication is enabled
+    genv_comm = HiveMindMultiAgentEnv(
+        render_mode=None, communication=True, comm_encoding="multi"
+    )
+    genv_comm.reset(seed=1000)
+    ctrl_comm = GreedyController(genv_comm)
+    a = ctrl_comm.act()
+    genv_comm.step(a)
+    genv_comm.close()
+    if len(a) == 8:  # 4 robots * 2 actions (move, msg)
+        emit("PASS: greedy baseline works with communication='multi'")
+    else:
+        emit(f"FAIL: greedy comm multi returned length {len(a)}")
+
+    genv_comm_merged = HiveMindMultiAgentEnv(
+        render_mode=None, communication=True, comm_encoding="merged"
+    )
+    genv_comm_merged.reset(seed=1000)
+    ctrl_comm_merged = GreedyController(genv_comm_merged)
+    a_merged = ctrl_comm_merged.act()
+    genv_comm_merged.step(a_merged)
+    genv_comm_merged.close()
+    if len(a_merged) == 4:
+        emit("PASS: greedy baseline works with communication='merged'")
+    else:
+        emit(f"FAIL: greedy comm merged returned length {len(a_merged)}")
+
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: greedy baseline: {type(e).__name__}: {e}")
+
+# -- Communication mechanics ----------------------------------------------------
+try:
+    cenv = HiveMindMultiAgentEnv(
+        render_mode=None, communication=True, comm_encoding="multi"
+    )
+    obs1, _ = cenv.reset(seed=0)
+    # Check messages are zeroed initially
+    msg_slice = slice(129, 177)
+    if not np.all(obs1[:, msg_slice] == 0):
+        emit("FAIL: messages not zeroed at reset")
+    else:
+        emit("PASS: messages zeroed at reset")
+
+    # Robot 0 sends token 5, Robot 1 sends token 10
+    actions = [6, 5, 6, 10, 6, 0, 6, 0]  # [move0, msg0, move1, msg1, ...]
+    obs2, _, _, _, _ = cenv.step(actions)
+
+    # Robot 0 sees Robot 1, 2, 3 -> Robot 1's token is at the start of Robot 0's message block (indices 129:145)
+    r0_msg1 = obs2[0, 129:145]
+    if np.argmax(r0_msg1) == 10 and np.sum(r0_msg1) == 1.0:
+        emit("PASS: communication token received by other robot")
+    else:
+        emit(
+            f"FAIL: expected token 10 at start of robot 0's message block, got argmax {np.argmax(r0_msg1)}"
+        )
+
+    # Test merged encoding
+    cenv_merged = HiveMindMultiAgentEnv(
+        render_mode=None, communication=True, comm_encoding="merged"
+    )
+    cenv_merged.reset(seed=0)
+    actions_merged = [6 * 16 + 5, 6 * 16 + 10, 6 * 16 + 0, 6 * 16 + 0]
+    obs2_m, _, _, _, _ = cenv_merged.step(actions_merged)
+    if np.array_equal(obs2[:, msg_slice], obs2_m[:, msg_slice]):
+        emit("PASS: merged encoding communication works exactly like multi")
+    else:
+        emit("FAIL: merged encoding communication differs from multi")
+    cenv.close()
+    cenv_merged.close()
+except Exception as e:  # noqa: BLE001
+    emit(f"FAIL: communication mechanics: {type(e).__name__}: {e}")
 
 # -- Scaffolding sanity ---------------------------------------------------------
 try:
@@ -247,7 +351,7 @@ try:
     assert linear_schedule(3e-4)(0.0) == 0.0
     assert issubclass(CurriculumCallback, BaseCallback)
     emit("PASS: training scaffolding (linear_schedule, CurriculumCallback) sane")
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     emit(f"FAIL: training scaffolding: {type(e).__name__}: {e}")
 
 # -- Write results --------------------------------------------------------------

@@ -8,7 +8,11 @@ from hivemind_env.env import HiveMindMultiAgentEnv
 
 def resource_cells(env):
     return [
-        env._world_to_grid(*pb.getBasePositionAndOrientation(resource_id, physicsClientId=env.client_id)[0][:2])
+        env._world_to_grid(
+            *pb.getBasePositionAndOrientation(
+                resource_id, physicsClientId=env.client_id
+            )[0][:2]
+        )
         for resource_id in env.resource_ids
     ]
 
@@ -34,8 +38,12 @@ def path_between(start, goal, blocked, grid_size):
                 path.append(previous[path[-1]])
             return list(reversed(path))
         row, column = current
-        for candidate in ((row - 1, column), (row + 1, column),
-                          (row, column - 1), (row, column + 1)):
+        for candidate in (
+            (row - 1, column),
+            (row + 1, column),
+            (row, column - 1),
+            (row, column + 1),
+        ):
             if not (0 <= candidate[0] < grid_size and 0 <= candidate[1] < grid_size):
                 continue
             if candidate in blocked or candidate in previous:
@@ -62,8 +70,12 @@ def approach_cell(resource, blocked, grid_size):
         (resource[0], resource[1] + 1),
     ]
     for candidate in candidates:
-        if (0 <= candidate[0] < grid_size and 0 <= candidate[1] < grid_size
-                and candidate not in blocked and candidate != (0, 0)):
+        if (
+            0 <= candidate[0] < grid_size
+            and 0 <= candidate[1] < grid_size
+            and candidate not in blocked
+            and candidate != (0, 0)
+        ):
             return candidate
     raise RuntimeError(f"No clear approach cell for resource {resource}")
 
@@ -92,8 +104,11 @@ def navigate_to_pickup(env):
     resource = cells[0]
     blocked = shelf_cells(cells, grid_size) | {(0, 0)}
     approach = approach_cell(resource, blocked, grid_size)
-    current = env._world_to_grid(*pb.getBasePositionAndOrientation(
-        env.robot_ids[0], physicsClientId=env.client_id)[0][:2])
+    current = env._world_to_grid(
+        *pb.getBasePositionAndOrientation(
+            env.robot_ids[0], physicsClientId=env.client_id
+        )[0][:2]
+    )
     direction = 0
 
     current, direction = navigate_to_cell(env, current, approach, direction, blocked)
@@ -102,7 +117,9 @@ def navigate_to_pickup(env):
     env.step([4, 6, 6, 6])
     if not env.is_carrying[0]:
         raise RuntimeError(f"Bot 0 failed to pick up resource at {resource}")
-    print(f"Bot 0 picked up resource at {resource}; lidar raised to {env.lidar_carry_height} m")
+    print(
+        f"Bot 0 picked up resource at {resource}; lidar raised to {env.lidar_carry_height} m"
+    )
 
 
 def play_demo():
@@ -110,8 +127,12 @@ def play_demo():
     env = HiveMindMultiAgentEnv(render_mode="human")
     try:
         env.reset()
-        pb.resetDebugVisualizerCamera(cameraDistance=16.0, cameraYaw=0,
-                                      cameraPitch=-89.9, cameraTargetPosition=[0, 0, 0])
+        pb.resetDebugVisualizerCamera(
+            cameraDistance=16.0,
+            cameraYaw=0,
+            cameraPitch=-89.9,
+            cameraTargetPosition=[0, 0, 0],
+        )
         navigate_to_pickup(env)
         time.sleep(2)
     except KeyboardInterrupt:

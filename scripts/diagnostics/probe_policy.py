@@ -19,6 +19,7 @@ its argmax is.
 
     .venv\\Scripts\\python.exe scripts/probe_policy.py models/canary_final.zip --num-cartons 4
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,10 +32,10 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from stable_baselines3 import PPO  # noqa: E402
+from stable_baselines3 import PPO
 
-from hivemind_env.env import NUM_AGENTS, HiveMindMultiAgentEnv  # noqa: E402
-from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device  # noqa: E402
+from hivemind_env.env import NUM_AGENTS, HiveMindMultiAgentEnv
+from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS, get_device
 
 ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
 
@@ -51,8 +52,9 @@ def probe(model, episodes, num_cartons, deterministic, seed0=1000):
         terminated = False
 
         for _ in range(env.max_steps):
-            actions, _ = model.predict(np.asarray(obs, dtype=np.float32),
-                                       deterministic=deterministic)
+            actions, _ = model.predict(
+                np.asarray(obs, dtype=np.float32), deterministic=deterministic
+            )
             actions = np.asarray(actions).reshape(-1)[:NUM_AGENTS]
             for a in actions:
                 counts[int(a)] += 1
@@ -68,28 +70,39 @@ def probe(model, episodes, num_cartons, deterministic, seed0=1000):
             completed += 1
         lengths.append(env.current_step)
         rewards.append(float(total.mean()))
-        delivered.append(sum(info["delivered_flags_total"][:env.active_cartons])
-                         if isinstance(info.get("delivered_flags_total"), (list, tuple))
-                         else info["delivered"])
+        delivered.append(
+            sum(info["delivered_flags_total"][: env.active_cartons])
+            if isinstance(info.get("delivered_flags_total"), (list, tuple))
+            else info["delivered"]
+        )
         env.close()
 
     n = max(episodes, 1)
-    return dict(
-        counts=counts, completed=completed, episodes=episodes,
-        length=float(np.mean(lengths)), reward=float(np.mean(rewards)),
-        pickups=pickups / n, deliveries=deliveries / n, collisions=collisions / n,
-        delivered=float(np.mean(delivered)),
-    )
+    return {
+        "counts": counts,
+        "completed": completed,
+        "episodes": episodes,
+        "length": float(np.mean(lengths)),
+        "reward": float(np.mean(rewards)),
+        "pickups": pickups / n,
+        "deliveries": deliveries / n,
+        "collisions": collisions / n,
+        "delivered": float(np.mean(delivered)),
+    }
 
 
 def report(label, r, num_cartons):
     total = max(r["counts"].sum(), 1)
     mix = "  ".join(f"{ACTION_NAMES[i]} {r['counts'][i] / total:.0%}" for i in range(7))
-    print(f"  {label:>13}: completed {r['completed']}/{r['episodes']}   "
-          f"ep_len {r['length']:6.1f}   reward {r['reward']:+8.1f}   "
-          f"delivered {r['delivered']:.1f}/{num_cartons}")
-    print(f"  {'':>13}  pickups {r['pickups']:.1f}/ep   "
-          f"deliveries {r['deliveries']:.1f}/ep   collisions {r['collisions']:.1f}/ep")
+    print(
+        f"  {label:>13}: completed {r['completed']}/{r['episodes']}   "
+        f"ep_len {r['length']:6.1f}   reward {r['reward']:+8.1f}   "
+        f"delivered {r['delivered']:.1f}/{num_cartons}"
+    )
+    print(
+        f"  {'':>13}  pickups {r['pickups']:.1f}/ep   "
+        f"deliveries {r['deliveries']:.1f}/ep   collisions {r['collisions']:.1f}/ep"
+    )
     print(f"  {'':>13}  {mix}")
 
     # The diagnosis, stated rather than left to the reader.
@@ -114,21 +127,27 @@ def main():
     ap.add_argument("--episodes", type=int, default=10)
     args = ap.parse_args()
 
-    model = PPO.load(args.model, device=get_device(),
-                     custom_objects=INFERENCE_CUSTOM_OBJECTS)
+    model = PPO.load(
+        args.model, device=get_device(), custom_objects=INFERENCE_CUSTOM_OBJECTS
+    )
 
     print("=" * 78)
-    print(f"  {os.path.basename(args.model)} at {args.num_cartons} cartons, "
-          f"{args.episodes} episodes (seeds 1000-{1000 + args.episodes - 1})")
+    print(
+        f"  {os.path.basename(args.model)} at {args.num_cartons} cartons, "
+        f"{args.episodes} episodes (seeds 1000-{1000 + args.episodes - 1})"
+    )
     print("=" * 78)
     for label, det in (("deterministic", True), ("stochastic", False)):
-        report(label, probe(model, args.episodes, args.num_cartons, det),
-               args.num_cartons)
+        report(
+            label, probe(model, args.episodes, args.num_cartons, det), args.num_cartons
+        )
 
     ref = {4: 23, 8: 58, 12: 97}.get(args.num_cartons)
     if ref:
-        print(f"  greedy reference at {args.num_cartons} cartons: "
-              f"makespan {ref}, 30/30 complete")
+        print(
+            f"  greedy reference at {args.num_cartons} cartons: "
+            f"makespan {ref}, 30/30 complete"
+        )
 
 
 if __name__ == "__main__":

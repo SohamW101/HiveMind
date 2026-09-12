@@ -28,6 +28,7 @@ For numbers rather than a picture, use scripts/probe_pickup.py (does it press PI
 when a carton is in reach?) and scripts/probe_policy.py (what does it do overall?) -
 both run headless and report deterministic and stochastic side by side.
 """
+
 import argparse
 import time
 
@@ -43,20 +44,47 @@ ACTION_NAMES = ["fwd", "back", "turnL", "turnR", "PICKUP", "DROP", "stay"]
 
 def main():
     p = argparse.ArgumentParser(description="Watch a trained policy in the GUI")
-    p.add_argument("model", help="path to a saved checkpoint, e.g. models/run_final.zip")
-    p.add_argument("--stochastic", action="store_true",
-                   help="sample from the action distribution instead of taking the "
-                        "argmax. Run both - see the module docstring.")
+    p.add_argument(
+        "model", help="path to a saved checkpoint, e.g. models/run_final.zip"
+    )
+    p.add_argument(
+        "--stochastic",
+        action="store_true",
+        help="sample from the action distribution instead of taking the "
+        "argmax. Run both - see the module docstring.",
+    )
     p.add_argument("--episodes", type=int, default=1)
-    p.add_argument("--num-cartons", type=int, default=None,
-                   help="cartons in play (env default 12). Use the count the policy "
-                        "was trained at, or the comparison means nothing.")
-    p.add_argument("--seed", type=int, default=None,
-                   help="fixed seed for episode 1; later episodes step upward from it")
-    p.add_argument("--delay", type=float, default=0.03,
-                   help="seconds to sleep per step so it is watchable; 0 for full speed")
-    p.add_argument("--headless", action="store_true",
-                   help="no GUI - just the numbers")
+    p.add_argument(
+        "--num-cartons",
+        type=int,
+        default=None,
+        help="cartons in play (env default 12). Use the count the policy "
+        "was trained at, or the comparison means nothing.",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="fixed seed for episode 1; later episodes step upward from it",
+    )
+    p.add_argument(
+        "--delay",
+        type=float,
+        default=0.03,
+        help="seconds to sleep per step so it is watchable; 0 for full speed",
+    )
+    p.add_argument(
+        "--communication",
+        action="store_true",
+        help="Set if the checkpoint was trained with emergent communication.",
+    )
+    p.add_argument(
+        "--comm-encoding",
+        choices=["multi", "merged"],
+        default="multi",
+        help="Encoding used for communication ('multi' or 'merged').",
+    )
+    p.add_argument("--headless", action="store_true", help="no GUI - just the numbers")
     args = p.parse_args()
 
     deterministic = not args.stochastic
@@ -67,9 +95,18 @@ def main():
     env = HiveMindMultiAgentEnv(
         render_mode=None if args.headless else "human",
         num_cartons=args.num_cartons,
+        communication=args.communication,
+        comm_encoding=args.comm_encoding,
     )
-    print(f"  mode      : {'deterministic (argmax)' if deterministic else 'stochastic (sampled)'}")
-    print(f"  cartons   : {env.active_cartons if hasattr(env, 'active_cartons') else args.num_cartons or 12}")
+    print(
+        f"  mode      : {'deterministic (argmax)' if deterministic else 'stochastic (sampled)'}"
+    )
+    print(
+        f"  cartons   : {env.active_cartons if hasattr(env, 'active_cartons') else args.num_cartons or 12}"
+    )
+    print(
+        f"  communication : {'ON (' + args.comm_encoding + ')' if args.communication else 'OFF'}"
+    )
     print(f"  max steps : {env.max_steps}")
 
     counts = np.zeros(7, dtype=int)
@@ -94,19 +131,38 @@ def main():
             steps = 0
             pickups = 0
             deliveries = 0
-            print(f"\nEpisode {ep + 1}/{args.episodes}"
-                  + (f" (seed {seed})" if seed is not None else "") + " ...")
+            print(
+                f"\nEpisode {ep + 1}/{args.episodes}"
+                + (f" (seed {seed})" if seed is not None else "")
+                + " ..."
+            )
 
             while not done:
                 # obs is (4, 177) - one row per robot. PPO reads that as a batch of 4
                 # observations and returns 4 actions, which is exactly the joint action
                 # the env wants.
-                actions, _ = model.predict(obs, deterministic=deterministic)
-                actions = np.asarray(actions).reshape(-1)[:NUM_AGENTS].astype(int)
-                for a in actions:
+                actions_pred, _ = model.predict(obs, deterministic=deterministic)
+                actions_pred = np.asarray(actions_pred).reshape(-1)
+
+                if args.communication:
+                    if args.comm_encoding == "multi":
+                        # MultiDiscrete([7, 16] * 4) -> shape is (8,)
+                        # move actions are even indices: 0, 2, 4, 6
+                        move_actions = actions_pred[0::2][:NUM_AGENTS].astype(int)
+                    else:
+                        # Discrete(112 * 4) -> shape is (4,)
+                        move_actions = (actions_pred[:NUM_AGENTS] // 16).astype(int)
+                    actions_for_env = actions_pred.astype(
+                        int
+                    )  # step takes the full action
+                else:
+                    move_actions = actions_pred[:NUM_AGENTS].astype(int)
+                    actions_for_env = move_actions
+
+                for a in move_actions:
                     counts[int(a)] += 1
 
-                obs, rewards, terminated, truncated, info = env.step(actions)
+                obs, _rewards, terminated, truncated, info = env.step(actions_for_env)
                 pickups += sum(1 for x in info["pickups"] if x)
                 deliveries += sum(1 for x in info["deliveries"] if x)
                 done = terminated or truncated
@@ -118,9 +174,11 @@ def main():
             totals["pickups"] += pickups
             totals["deliveries"] += deliveries
             totals["steps"] += steps
-            print(f"  {steps} steps | delivered {info['delivered']}/{env.active_cartons}"
-                  f" | pickups {pickups} | deliveries {deliveries}"
-                  f" | {'COMPLETE' if terminated else 'timed out'}")
+            print(
+                f"  {steps} steps | delivered {info['delivered']}/{env.active_cartons}"
+                f" | pickups {pickups} | deliveries {deliveries}"
+                f" | {'COMPLETE' if terminated else 'timed out'}"
+            )
 
     except KeyboardInterrupt:
         print("\nTest run stopped by user.")
@@ -129,21 +187,30 @@ def main():
 
     n = max(args.episodes, 1)
     total_actions = max(counts.sum(), 1)
-    mix = "  ".join(f"{name} {100.0 * c / total_actions:.0f}%"
-                    for name, c in zip(ACTION_NAMES, counts) if c)
+    mix = "  ".join(
+        f"{name} {100.0 * c / total_actions:.0f}%"
+        for name, c in zip(ACTION_NAMES, counts)
+        if c
+    )
     print("\n" + "=" * 70)
-    print(f"  {'deterministic (argmax)' if deterministic else 'stochastic (sampled)'}"
-          f" over {args.episodes} episode(s)")
+    print(
+        f"  {'deterministic (argmax)' if deterministic else 'stochastic (sampled)'}"
+        f" over {args.episodes} episode(s)"
+    )
     print(f"  completed  {completed}/{args.episodes}")
-    print(f"  pickups    {totals['pickups'] / n:.1f}/ep      "
-          f"deliveries {totals['deliveries'] / n:.1f}/ep      "
-          f"ep_len {totals['steps'] / n:.1f}")
+    print(
+        f"  pickups    {totals['pickups'] / n:.1f}/ep      "
+        f"deliveries {totals['deliveries'] / n:.1f}/ep      "
+        f"ep_len {totals['steps'] / n:.1f}"
+    )
     print(f"  actions    {mix}")
     if totals["pickups"] == 0:
-        print("\n  Zero pickups. If this was a deterministic run, try --stochastic "
-              "before\n  concluding the policy is broken, then use "
-              "scripts/probe_pickup.py to see\n  whether it is standing in reach "
-              "of cartons without grabbing them.")
+        print(
+            "\n  Zero pickups. If this was a deterministic run, try --stochastic "
+            "before\n  concluding the policy is broken, then use "
+            "scripts/probe_pickup.py to see\n  whether it is standing in reach "
+            "of cartons without grabbing them."
+        )
     print("=" * 70)
 
 
