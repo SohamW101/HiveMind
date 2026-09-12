@@ -21,6 +21,7 @@ We have meticulously documented every facet of the project architecture, trainin
 5. **[Environment Constraints & Physics](repo_docs/5_Environment_Constraints_and_Physics.md)**: The strict limitations of the PyBullet LiDAR and kinematic simulation.
 6. **[Current Implementation State](repo_docs/6_Current_Implementation_State.md)**: A catalog of exactly what has been built and verified to date.
 7. **[Future Roadmap & Plans](repo_docs/7_Future_Roadmap_and_Plans.md)**: Next steps (e.g. Domain Randomization, Sim2Real transfer).
+8. **[Implementation Journey & Breakthroughs](repo_docs/8_Implementation_Journey_and_Breakthroughs.md)**: Detailed breakdown of the architectural changes and bug fixes that lead to the final working model.
 
 ## 🚀 Quick Start
 *See the [Repository Walkthrough](repo_docs/3_Repository_Walkthrough.md) for full details.*
