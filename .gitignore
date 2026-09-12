@@ -1,14 +1,18 @@
 # Environments
 .env
 .venv
+.venv_py310
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+offline_packages/
 
 # Python
 __pycache__/
+.pytest_cache/
+.ruff_cache/
 *.py[cod]
 *$py.class
 *.so
@@ -30,8 +34,14 @@ develop-eggs/
 *.swp
 *.swo
 
+# OS specific
+.DS_Store
+Thumbs.db
+
 # Generated reports
 smoke_test_results.txt
 
-# Training artifacts
+# Training artifacts & Logs
 models/
+tensorboard_logs/
+*.log
