@@ -42,6 +42,4 @@ Thumbs.db
 smoke_test_results.txt
 
 # Training artifacts & Logs
-models/
-tensorboard_logs/
 *.log
