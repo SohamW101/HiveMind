@@ -27,6 +27,8 @@ import os
 import sys
 
 import numpy as np
+import math
+import pybullet as pb
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -85,6 +87,8 @@ def run_episode(model: RecurrentPPO, vec_env: HiveMindSharedPolicyVecEnv) -> dic
     steps = 0
     collisions = 0
     last_info = {}
+    
+    stuck_counters = [0] * N_AGENTS
 
     while not done:
         action, lstm_states = model.predict(
@@ -93,6 +97,106 @@ def run_episode(model: RecurrentPPO, vec_env: HiveMindSharedPolicyVecEnv) -> dic
             episode_start=ep_starts,
             deterministic=True,
         )
+
+        # --- Safety Shield (Dynamic No-Op) ---
+        base_env = vec_env.envs[0]
+        
+        current_cells = []
+        yaws = []
+        for i in range(N_AGENTS):
+            pos, orn = pb.getBasePositionAndOrientation(base_env.robot_ids[i], physicsClientId=base_env.client_id)
+            yaw = pb.getEulerFromQuaternion(orn)[2]
+            yaw = round(yaw / (math.pi / 2.0)) * (math.pi / 2.0)
+            r, c = base_env._world_to_grid(pos[0], pos[1])
+            current_cells.append((r, c))
+            yaws.append(yaw)
+            
+        next_cells = list(current_cells)
+        for i in range(N_AGENTS):
+            if len(action.shape) > 1 and action.shape[1] > 1:
+                a = action[i, 0]
+            else:
+                a = action[i]
+            r, c = current_cells[i]
+            yaw = yaws[i]
+            
+            # Hardcoded rule: ALWAYS drop off if 1 cell away from depot (0,0)
+            if base_env.is_carrying[i] and r <= 1 and c <= 1:
+                a = 5
+                if len(action.shape) > 1 and action.shape[1] > 1:
+                    action[i, 0] = a
+                else:
+                    action[i] = a
+                    
+            nr, nc = r, c
+            if a == 0:
+                dr = round(-math.sin(yaw))
+                dc = round(math.cos(yaw))
+                nr, nc = r + dr, c + dc
+            elif a == 1:
+                dr = round(-math.sin(yaw))
+                dc = round(math.cos(yaw))
+                nr, nc = r - dr, c - dc
+                
+            # Physics Prediction: If PyBullet will reject the move (wall/shelf),
+            # the bot will physically remain stationary.
+            if not (0 <= nr < base_env.grid_size and 0 <= nc < base_env.grid_size) or (nr, nc) in base_env.blocked_cells:
+                nr, nc = r, c
+                
+            next_cells[i] = (nr, nc)
+
+        priority = sorted(range(N_AGENTS), key=lambda x: (not base_env.is_carrying[x], x))
+        
+        resolved = False
+        while not resolved:
+            resolved = True
+            for i in priority:
+                for j in range(N_AGENTS):
+                    if i == j:
+                        continue
+                    
+                    conflict_type = None
+                    # 1. Swap Conflict (Cross-path)
+                    if next_cells[i] == current_cells[j] and next_cells[j] == current_cells[i]:
+                        if priority.index(i) > priority.index(j):
+                            conflict_type = "swap"
+                    
+                    # 2. Contention Conflict
+                    if not conflict_type and next_cells[i] == next_cells[j]:
+                        if next_cells[j] == current_cells[j]:
+                            conflict_type = "contention"
+                        elif priority.index(i) > priority.index(j):
+                            conflict_type = "contention"
+                            
+                    if conflict_type:
+                        if next_cells[i] != current_cells[i]:
+                            next_cells[i] = current_cells[i]
+                            
+                            # Break deadlocks on swaps by forcing a turn.
+                            # For simple contention, use a No-Op to wait patiently.
+                            if conflict_type == "swap":
+                                new_a = 3  # Turn Right
+                            else:
+                                stuck_counters[i] += 1
+                                if stuck_counters[i] > 3:
+                                    new_a = 3  # Turn Right to break traffic jam
+                                    stuck_counters[i] = 0
+                                else:
+                                    new_a = 4 if base_env.is_carrying[i] else 5  # No-Op
+                                
+                            if len(action.shape) > 1 and action.shape[1] > 1:
+                                action[i, 0] = new_a
+                            else:
+                                action[i] = new_a
+                            resolved = False
+                        break
+            if resolved:
+                # Anyone who didn't conflict gets their counter reset
+                for i in range(N_AGENTS):
+                    if next_cells[i] != current_cells[i]:
+                        stuck_counters[i] = 0
+        # --- End Safety Shield ---
+
         obs, _rewards, dones, infos = vec_env.step(action)
         ep_starts = np.zeros((vec_env.num_envs,), dtype=bool)
 

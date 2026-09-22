@@ -1093,8 +1093,21 @@ class HiveMindMultiAgentEnv(gym.Env):
                     res_pos, _ = pb.getBasePositionAndOrientation(
                         nearest_res, physicsClientId=self.client_id
                     )
+                    r, c = self._world_to_grid(pos[0], pos[1])
+                    rr, cr = self._world_to_grid(res_pos[0], res_pos[1])
+                    p1_world = list(pos)
+                    if abs(r - rr) > 0 and abs(c - cr) > 0:
+                        # Diagonal! Find an empty cardinal cell.
+                        if self._can_enter(*self._grid_to_world(r, cr)):
+                            p1_world = list(self._grid_to_world(r, cr))
+                            p1_world.append(pos[2])
+                        elif self._can_enter(*self._grid_to_world(rr, c)):
+                            p1_world = list(self._grid_to_world(rr, c))
+                            p1_world.append(pos[2])
+                    
+                    target_state["p1_world"] = tuple(p1_world)
                     target_state["arm_yaw"] = self._get_cardinal_direction_angle(
-                        res_pos, pos, yaw
+                        res_pos, target_state["p1_world"], yaw
                     )
                     target_state["finger"] = -0.01
                     target_state["lidar"] = self.lidar_carry_height
@@ -1128,6 +1141,10 @@ class HiveMindMultiAgentEnv(gym.Env):
             starts.append(start_state)
             targets.append(target_state)
 
+        # Make the animation slower and smoother for complex actions like pickup
+        if any(did_pickup):
+            num_substeps *= 3
+
         # Simultaneous Execution
         for step_idx in range(1, num_substeps + 1):
             alpha = step_idx / float(num_substeps)
@@ -1138,8 +1155,23 @@ class HiveMindMultiAgentEnv(gym.Env):
                 t = targets[i]
 
                 # Interpolate Pos & Yaw
-                ix = s["pos"][0] + (t["pos"][0] - s["pos"][0]) * alpha
-                iy = s["pos"][1] + (t["pos"][1] - s["pos"][1]) * alpha
+                if actions[i] == 4 and "p1_world" in t:
+                    p1 = t["p1_world"]
+                    p0 = s["pos"]
+                    if alpha <= 0.33:
+                        phase = alpha / 0.33
+                        ix = p0[0] + (p1[0] - p0[0]) * phase
+                        iy = p0[1] + (p1[1] - p0[1]) * phase
+                    elif alpha <= 0.66:
+                        ix = p1[0]
+                        iy = p1[1]
+                    else:
+                        phase = (alpha - 0.66) / 0.34
+                        ix = p1[0] + (p0[0] - p1[0]) * phase
+                        iy = p1[1] + (p0[1] - p1[1]) * phase
+                else:
+                    ix = s["pos"][0] + (t["pos"][0] - s["pos"][0]) * alpha
+                    iy = s["pos"][1] + (t["pos"][1] - s["pos"][1]) * alpha
                 iyaw = s["yaw"] + (t["yaw"] - s["yaw"]) * alpha
                 iorn = pb.getQuaternionFromEuler(
                     [0, 0, iyaw], physicsClientId=self.client_id
@@ -1149,9 +1181,21 @@ class HiveMindMultiAgentEnv(gym.Env):
                 )
 
                 # Interpolate Joints
-                st["current_arm_yaw"] = (
-                    s["arm_yaw"] + (t["arm_yaw"] - s["arm_yaw"]) * alpha
-                )
+                if actions[i] == 4 and "pickup_target" in t:
+                    if alpha <= 0.33:
+                        st["current_arm_yaw"] = s["arm_yaw"]
+                    elif alpha <= 0.495:
+                        beta = (alpha - 0.33) / (0.495 - 0.33)
+                        st["current_arm_yaw"] = s["arm_yaw"] + (t["arm_yaw"] - s["arm_yaw"]) * beta
+                    elif alpha <= 0.66:
+                        gamma = (alpha - 0.495) / (0.66 - 0.495)
+                        st["current_arm_yaw"] = t["arm_yaw"] + (0.0 - t["arm_yaw"]) * gamma
+                    else:
+                        st["current_arm_yaw"] = 0.0
+                else:
+                    st["current_arm_yaw"] = (
+                        s["arm_yaw"] + (t["arm_yaw"] - s["arm_yaw"]) * alpha
+                    )
                 st["current_finger_pos"] = (
                     s["finger"] + (t["finger"] - s["finger"]) * alpha
                 )
@@ -1223,12 +1267,16 @@ class HiveMindMultiAgentEnv(gym.Env):
                 if actions[i] == 4 and "pickup_target" in t:  # Picking up
                     res_id = t["pickup_target"]
                     start_res_pos = t["res_start_pos"]
-                    cur_res_x = start_res_pos[0] + alpha * (
-                        carried_rx - start_res_pos[0]
-                    )
-                    cur_res_y = start_res_pos[1] + alpha * (
-                        carried_ry - start_res_pos[1]
-                    )
+                    if alpha <= 0.33:
+                        cur_res_x = start_res_pos[0]
+                        cur_res_y = start_res_pos[1]
+                    elif alpha <= 0.495:
+                        beta = (alpha - 0.33) / (0.495 - 0.33)
+                        cur_res_x = start_res_pos[0] + beta * (carried_rx - start_res_pos[0])
+                        cur_res_y = start_res_pos[1] + beta * (carried_ry - start_res_pos[1])
+                    else:
+                        cur_res_x = carried_rx
+                        cur_res_y = carried_ry
                     pb.resetBasePositionAndOrientation(
                         res_id,
                         [cur_res_x, cur_res_y, self.carton_size / 2.0],
@@ -1263,9 +1311,9 @@ class HiveMindMultiAgentEnv(gym.Env):
         # Post-substep handling
         for i in range(self.num_agents):
             if actions[i] == 4 and "pickup_target" in targets[i]:
-                self.agent_state[i]["current_arm_yaw"] = targets[i]["arm_yaw"]
+                self.agent_state[i]["current_arm_yaw"] = 0.0
                 self._set_arm_and_lidar_joints(
-                    i, targets[i]["arm_yaw"], -0.01, self.lidar_carry_height
+                    i, 0.0, -0.01, self.lidar_carry_height
                 )
 
             elif actions[i] == 5 and "dropoff" in targets[i]:
