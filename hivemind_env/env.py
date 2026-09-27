@@ -463,6 +463,7 @@ class HiveMindMultiAgentEnv(gym.Env):
         gamma=0.99,
         communication=False,
         comm_encoding="multi",
+        mute_messages=False,
     ):
         super().__init__()
 
@@ -488,6 +489,11 @@ class HiveMindMultiAgentEnv(gym.Env):
         # the observation's reserved message slots as a one-hot vector.
         self.communication = bool(communication)
         self.comm_encoding = str(comm_encoding)  # "multi" or "merged"
+        # Communication ablation. When True, tokens are still chosen and decoded (the
+        # action space and network are unchanged) but never delivered: the message
+        # slots stay zero. This is the no-comm arm; the channel being open is the only
+        # difference from the comm arm.
+        self.mute_messages = bool(mute_messages)
         # Physics substeps per environment step: a one-cell move is executed by
         # teleporting the robot across this many resetBasePositionAndOrientation +
         # stepSimulation pairs.
@@ -988,8 +994,10 @@ class HiveMindMultiAgentEnv(gym.Env):
                 # Write one-hot message into this robot's buffer.
                 # _get_obs() reads self.messages to build the next observation,
                 # so messages sent at step t are observed at step t (same-step).
-                self.messages[i] = np.zeros(MSG_TOKENS, dtype=np.float32)
-                self.messages[i][msg_token] = 1.0
+                # A muted channel leaves the zeros from reset() in place.
+                if not self.mute_messages:
+                    self.messages[i] = np.zeros(MSG_TOKENS, dtype=np.float32)
+                    self.messages[i][msg_token] = 1.0
             actions = move_actions
 
         # Per-step reward events (spec S3). Filled by the action loop below and

@@ -46,14 +46,14 @@ MODEL_PATH = os.path.join(
 
 
 def make_vec_env(
-    num_cartons: int | None, render: bool = False
+    num_cartons: int | None, render: bool = False, mute_messages: bool = False
 ) -> HiveMindSharedPolicyVecEnv:
     """
     Create the same VecEnv used during training.
     1 world × N_AGENTS = 4 SB3 slots, each with obs shape (177,).
     After reset/step, the vec-env returns obs shape (4, 177) — already batched.
     """
-    kwargs = {"communication": True}
+    kwargs = {"communication": True, "mute_messages": mute_messages}
     if num_cartons is not None:
         kwargs["num_cartons"] = num_cartons
     if render:
@@ -123,6 +123,7 @@ def evaluate(
     gif: bool = False,
     mp4: bool = False,
     render: bool = False,
+    mute_messages: bool = False,
 ) -> dict | None:
     carton_label = str(num_cartons) if num_cartons else "12 (full task)"
     max_step_hint = MAX_STEPS.get(num_cartons or 12, 400)
@@ -136,6 +137,7 @@ def evaluate(
         print(f"  Episodes     : {episodes}")
     print(f"  Cartons      : {carton_label}   (max_steps ≈ {max_step_hint})")
     print(f"  Agents       : {N_AGENTS}")
+    print(f"  Messages     : {'muted (no-comm arm)' if mute_messages else 'delivered'}")
     print(f"{'=' * 56}\n")
 
     print("Loading model …", end=" ", flush=True)
@@ -146,7 +148,7 @@ def evaluate(
         return None
     print("OK")
 
-    vec_env = make_vec_env(num_cartons, render)
+    vec_env = make_vec_env(num_cartons, render, mute_messages)
     print(f"Vec-env ready  : {vec_env.num_envs} slots (1 world × {N_AGENTS} agents)\n")
 
     successes = 0
@@ -185,9 +187,9 @@ def evaluate(
     print(f"{'=' * 56}\n")
 
     if gif:
-        _save_gif(model, num_cartons, "demo_inference.gif")
+        _save_gif(model, num_cartons, "demo_inference.gif", mute_messages)
     elif mp4:
-        _save_gif(model, num_cartons, "demo_inference.mp4")
+        _save_gif(model, num_cartons, "demo_inference.mp4", mute_messages)
 
     return {
         "episodes": episodes,
@@ -201,7 +203,10 @@ def evaluate(
 
 
 def _save_gif(
-    model: RecurrentPPO, num_cartons: int | None, out: str = "demo_inference.gif"
+    model: RecurrentPPO,
+    num_cartons: int | None,
+    out: str = "demo_inference.gif",
+    mute_messages: bool = False,
 ) -> None:
     print(f"Generating GIF → {out} …")
     try:
@@ -210,10 +215,10 @@ def _save_gif(
 
         from hivemind_env.env import HiveMindMultiAgentEnv
 
-        kwargs = {"communication": True}
+        kwargs = {"communication": True, "mute_messages": mute_messages}
         if num_cartons is not None:
             kwargs["num_cartons"] = num_cartons
-        env = HiveMindMultiAgentEnv(render_mode="rgb_array", **kwargs)
+        env =HiveMindMultiAgentEnv(render_mode="rgb_array", **kwargs)
 
         obs_raw, _ = env.reset()  # (4, 177)
         lstm_states = None
@@ -276,6 +281,11 @@ if __name__ == "__main__":
     p.add_argument("--gif", action="store_true", help="Generate demo_inference.gif")
     p.add_argument("--mp4", action="store_true", help="Generate demo_inference.mp4")
     p.add_argument("--render", action="store_true", help="Render PyBullet GUI")
+    p.add_argument(
+        "--mute-messages",
+        action="store_true",
+        help="No-comm ablation arm: message slots stay zero.",
+    )
     args = p.parse_args()
 
     evaluate(
@@ -285,4 +295,5 @@ if __name__ == "__main__":
         gif=args.gif,
         mp4=args.mp4,
         render=args.render,
+        mute_messages=args.mute_messages,
     )
