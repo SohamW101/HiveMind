@@ -61,10 +61,10 @@ On your laptop: `ssh -L 6006:localhost:6006 <user>@<server>`, then open `http://
 
 | What | Where |
 |---|---|
-| Checkpoints (every 250k steps) | `models/checkpoints/ppo_recurrent_comm_s0_<steps>_steps.zip` |
+| Checkpoints (every 249,984 steps) | `models/checkpoints/ppo_recurrent_comm_s0_<steps>_steps.zip` |
 | Final model | `models/ppo_recurrent_comm_s0_final.zip` |
 | Logs | `tensorboard_logs/ppo_recurrent_comm_s0_1/` |
 
-Compare against the baseline (`models/ppo_recurrent_final.zip`, 13.5M steps) using the checkpoint closest to 13.5M: `models/checkpoints/ppo_recurrent_comm_s0_13500000_steps.zip` or the nearest one.
+Compare against the baseline (`models/ppo_recurrent_final.zip`, 13,499,136 steps) using `models/checkpoints/ppo_recurrent_comm_s0_13499136_steps.zip`, which is the same step count.
 
 `Ctrl+C` stops training and still saves the final model.
