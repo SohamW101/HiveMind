@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(__file__))
 from inference import MODEL_PATH, evaluate
 
 
-def evaluate_all(episodes: int, model_path: str, mute_messages: bool = False):
+def evaluate_all(episodes: int, model_path: str):
     cartons_to_test = [4, 8, 12]
     results = {}
 
@@ -17,17 +17,11 @@ def evaluate_all(episodes: int, model_path: str, mute_messages: bool = False):
     print(f"  Model        : {model_path}")
     print(f"  Episodes/stage: {episodes}")
     print(f"  Curriculum   : {cartons_to_test} cartons")
-    print(f"  Messages     : {'muted (no-comm arm)' if mute_messages else 'delivered'}")
     print("=" * 70 + "\n")
 
     for c in cartons_to_test:
         print(f"\n[ RUNNING EVALUATION FOR {c} CARTONS ]")
-        stats = evaluate(
-            episodes=episodes,
-            num_cartons=c,
-            model_path=model_path,
-            mute_messages=mute_messages,
-        )
+        stats = evaluate(episodes=episodes, num_cartons=c, model_path=model_path)
         if stats:
             results[c] = stats
 
@@ -73,15 +67,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-path", type=str, default=MODEL_PATH, help="Path to the model to load."
     )
-    parser.add_argument(
-        "--mute-messages",
-        action="store_true",
-        help="No-comm ablation arm: message slots stay zero.",
-    )
     args = parser.parse_args()
 
-    evaluate_all(
-        episodes=args.episodes,
-        model_path=args.model_path,
-        mute_messages=args.mute_messages,
-    )
+    evaluate_all(episodes=args.episodes, model_path=args.model_path)

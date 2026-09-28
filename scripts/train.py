@@ -97,7 +97,6 @@ def build_env(
     shaping_scale: float | None = None,
     communication: bool = False,
     comm_encoding: str = "multi",
-    mute_messages: bool = False,
 ):
     """
     Wrapped in VecMonitor so ep_rew_mean / ep_len_mean reach TensorBoard.
@@ -120,7 +119,6 @@ def build_env(
     if communication:
         kwargs["communication"] = True
         kwargs["comm_encoding"] = comm_encoding
-        kwargs["mute_messages"] = mute_messages
     vec = cls(
         num_worlds=worlds,
         difficulty_level=difficulty,
@@ -253,20 +251,11 @@ def main():
         "'merged': Discrete(112) per slot.",
     )
     p.add_argument(
-        "--mute-messages",
-        action="store_true",
-        help="Communication ablation, no-comm arm: with --communication, tokens are "
-        "still chosen but never delivered (message slots stay zero). Keeps the "
-        "action space and network identical to the comm arm.",
-    )
-    p.add_argument(
         "--smoke",
         action="store_true",
         help="Tiny run that exercises every code path in a minute or two.",
     )
     args = p.parse_args()
-    if args.mute_messages and not args.communication:
-        p.error("--mute-messages only applies with --communication")
 
     if args.smoke:
         args.timesteps = 4096
@@ -292,11 +281,7 @@ def main():
             f"adjusted to {args.batch_size} ({buffer // args.batch_size} mini-batches)"
         )
 
-    comm_tag = "_comm" if args.communication and not args.mute_messages else "_nocomm"
-    run_name = (
-        args.run_name
-        or f"ppo_shared_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}{comm_tag}"
-    )
+    run_name = args.run_name or f"ppo_shared_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
 
     device = get_device()
     os.makedirs(args.save_dir, exist_ok=True)
@@ -343,7 +328,7 @@ def main():
         f"  shaping      : {'off - sparse spec reward' if args.no_shaping else f'on, scale {args.shaping_scale or SHAPING_SCALE_DEFAULT}'}"
     )
     print(
-        f"  communication: {'ON (' + args.comm_encoding + ' encoding)' + (', MUTED' if args.mute_messages else '') if args.communication else 'off'}"
+        f"  communication: {'ON (' + args.comm_encoding + ' encoding)' if args.communication else 'off'}"
     )
     print(
         f"  backend      : {args.backend}"
@@ -364,7 +349,6 @@ def main():
         shaping_scale=args.shaping_scale,
         communication=args.communication,
         comm_encoding=args.comm_encoding,
-        mute_messages=args.mute_messages,
     )
 
     model = RecurrentPPO(
