@@ -44,45 +44,46 @@
 
 ---
 
-## Slide 4: RL Architecture: One Brain, Four Robots
+## Slide 4: RL Architecture
 
-- **Shared policy:** one neural network drives all 4 robots.
-  - Each robot feeds in its own observation and acts on its own.
-  - Everything any robot learns benefits the whole team.
-- **What each robot observes:**
-  - its own state;
-  - teammates' positions;
-  - carton status;
-  - the depot's direction;
-  - its LiDAR scan;
-  - reserved slots for messages from teammates.
-- **Network:** three branches, merged into memory.
-  - **World features** → fully connected layers.
-  - **LiDAR scan** → 1-D CNN, which spots obstacle shapes in any direction.
-  - **Teammate messages** → attention.
-  - All three feed an **LSTM**, so robots remember what they have already explored.
-- **Algorithm:** Recurrent PPO, an actor-critic method. The actor and critic are kept separate for stability.
+- **Formulation:** cooperative multi-agent RL as a **Dec-POMDP**.
+  - The robots share a team reward, and each acts only on its own local observation.
+- **Parameter sharing, decentralised execution:**
+  - One actor-critic network is shared by all 4 agents.
+  - A custom SB3 `VecEnv` adapter presents each 4-robot world as 4 single-agent slots.
+- **Algorithm:** **Recurrent PPO** (`sb3-contrib`).
+  - Clipped surrogate objective, **GAE** advantages and an entropy bonus.
+  - An **LSTM** hidden state gives the policy memory under partial observability.
+- **Observation:** a fixed-size **177-d vector** per agent.
+  - Own pose and velocity, teammate poses, carton status and positions, depot offset.
+  - A **72-ray, 270° LiDAR** with Gaussian noise.
+  - **48 reserved message slots:** 3 teammates × 16-token one-hot.
+- **Action space:** `MultiDiscrete([7, 16])`, i.e. 7 motion/manipulation actions plus a 16-token discrete message.
+- **Feature extractor (custom PyTorch module), three branches, fused and passed to the LSTM:**
+  - **MLP** over world-state features.
+  - **1-D CNN** (strided convolutions) over the LiDAR sweep, which exploits its angular structure.
+  - **Multi-head self-attention** over the incoming messages, max-pooled so sender order doesn't matter.
+- **Separate actor and critic extractors,** so value gradients don't interfere with the policy representation.
+- **Critic:** decentralised (per-agent observation). A centralised MAPPO-style critic is a future upgrade.
 
-`[Diagram: observation → 3 branches → LSTM → actions]`
+`[Diagram: 177-d obs → MLP | 1-D CNN | MHA → concat → LSTM → π (7×16) / V]`
 
 ---
 
-## Slide 5: How We Trained It
+## Slide 5: Reward Design and Training
 
-- **Reward design:**
-  - Team reward for every delivery, and a big bonus for finishing the job quickly.
-  - Penalties for collisions (the robot that caused it takes the blame) and for wasted time.
-  - **Progress shaping:** a small reward for real progress toward the next carton or the depot, designed so it can't be gamed.
-- **Curriculum learning:** start with 1 carton, then 2 → 4 → 8 → 12, moving up automatically once the team succeeds reliably.
-- **Parallel simulation:** 8 warehouses run at once, one per CPU process, for faster training.
-- **Communication-ready:** robots can send one of 16 tokens each step. This run is the no-communication baseline; the communication ablation comes next.
-- **Tech stack:**
-  - Python
-  - PyBullet
-  - Gymnasium
-  - PyTorch
-  - Stable-Baselines3 / sb3-contrib
-  - TensorBoard
+- **Reward: a team/individual split** (0.8 shared, 0.2 individual).
+  - Shared terms: per-delivery reward, a completion bonus and a **makespan bonus**, minus a time penalty and collision costs.
+  - Individual terms: own pick-ups and deliveries, invalid actions, and idling.
+- **Potential-based reward shaping** (Ng, Harada & Russell, 1999):
+  - F = Φ(s′) − Φ(s), with Φ = −(work remaining).
+  - It **telescopes** over an episode, so it can't be farmed and doesn't change which policy is optimal.
+- **Credit assignment:** asymmetric collision blame. Only the agent that moved into another is penalised.
+- **Training setup:**
+  - **Curriculum learning:** 1 → 12 cartons, promoted automatically on rolling success rate.
+  - **Parallel simulation:** multi-process `SubprocVecEnv`, 8 worlds = 32 agent streams.
+  - Reward normalisation with `VecNormalize`, and long-horizon discounting (γ = 0.999).
+- **Tech stack:** Python · PyBullet · Gymnasium · PyTorch · Stable-Baselines3 / sb3-contrib · TensorBoard
 
 ---
 
@@ -92,10 +93,18 @@
 `[Graph: presentation_graphs/3_episode_length.png]`
 `[Graph: presentation_graphs/6_eval_success.png]`
 
-- Trained for **13.5 M steps**; the full 12-carton task was reached at 2.5 M.
-- **100% success on the full task:** 50/50 evaluation episodes, all 12 cartons delivered.
-- Episodes kept getting shorter throughout training, so the team got faster.
-- Lower success with only 4 cartons: the policy specialised on the full task.
+- **13.5 M environment steps.** The curriculum reached the full 12-carton task at 2.56 M.
+- **Evaluation (deterministic policy, 50 episodes per level):**
+  - **100% success at 12 cartons.**
+  - 84% at 8 cartons.
+  - 18% at 4 cartons, a curriculum-overfitting effect.
+- **Makespan** (steps to finish) kept falling throughout training.
+- **Critic convergence:**
+  - Explained variance went from 0.41 to **0.999**.
+  - Value loss fell from 2.5 to 0.003.
+- **Policy updates grew aggressive late in training:**
+  - Approximate KL divergence ~0.06, clip fraction ~0.36.
+  - Lesson learned: PPO step-size control, e.g. `target_kl` or a faster learning-rate decay.
 
 *Backup graphs:* `2_cartons_delivered.png`, `4_episode_reward.png`, `5_curriculum.png`
 

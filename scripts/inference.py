@@ -43,7 +43,7 @@ CURRICULUM = {1: 1, 2: 2, 4: 4, 8: 8, 12: 12}
 MAX_STEPS = {1: 60, 2: 90, 4: 150, 8: 250, 12: 400}
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "models", "ppo_recurrent_final.zip"
+    os.path.dirname(__file__), "..", "models", "ppo_recurrent_comm_s0_final.zip"
 )
 
 
