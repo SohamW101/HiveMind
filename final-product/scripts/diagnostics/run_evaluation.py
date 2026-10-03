@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -398,7 +398,7 @@ def main():
     parser.add_argument(
         "--levels", type=int, nargs="+", default=sorted(CURRICULUM_CARTONS)
     )
-    parser.add_argument("--out", default="docs_analysis/evaluation_results.json")
+    parser.add_argument("--out", default="eval/evaluation_results.json")
     parser.add_argument(
         "--force",
         action="store_true",
@@ -428,7 +428,7 @@ def main():
             sys.exit(
                 f"ERROR: {args.out} already holds a {existing}-episode-per-level run, and\n"
                 f"this one is only {args.episodes}. Refusing to overwrite better data.\n\n"
-                f"  Write elsewhere:  --out docs_analysis/eval_smoke.json\n"
+                f"  Write elsewhere:  --out eval/eval_smoke.json\n"
                 f"  Or overwrite:     --force"
             )
 

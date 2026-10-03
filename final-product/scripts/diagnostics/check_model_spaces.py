@@ -1,7 +1,7 @@
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from sb3_contrib import RecurrentPPO
 
 from hivemind_env.training import INFERENCE_CUSTOM_OBJECTS

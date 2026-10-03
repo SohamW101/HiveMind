@@ -178,7 +178,7 @@ def main():
         "--init-from",
         default=None,
         help="Warm-start the policy from a saved checkpoint, typically the "
-        "behaviour-cloned one from scripts/pretrain_bc.py. The critic is "
+        "behaviour-cloned one from learning/iteration-phase/scripts/pretrain_bc.py. The critic is "
         "NOT cloned, so expect the first iterations to dip before they "
         "improve.",
     )

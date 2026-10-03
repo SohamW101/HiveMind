@@ -55,50 +55,26 @@ It has two research goals:
 
 ```
 HiveMind/
-├── README.md                     project front page
-├── walkthrough.md                this document
-├── presentation.md               long-form presentation reference
-├── presentation-final-content.md slide-by-slide content
-├── training_instructions.md      exact server setup + training commands
-├── requirements.txt              pip dependencies
-├── pyproject.toml                package metadata (hivemind-env 0.1.0, setuptools)
-├── environment.yml               conda alternative (Python 3.10, not the tested path)
-├── uv.lock                       uv lockfile
-├── .gitignore / .gitattributes
-│
-├── hivemind_env/                 the Python package
-│   ├── env.py                    HiveMindMultiAgentEnv: world, physics, observation, reward, LiDAR, messages
-│   ├── models.py                 HiveMindExtractor + MessageAttention + DEFAULT_POLICY_KWARGS
-│   ├── vec_env.py                HiveMindSharedPolicyVecEnv (in-process, 4 slots per world)
-│   ├── subproc_vec_env.py        HiveMindSubprocVecEnv (one OS process per world)
-│   ├── training.py               curriculum + metrics callbacks, schedules, model loading, device probe
-│   ├── greedy.py                 scripted BFS greedy controller (reference / demonstrator)
-│   └── assets/                   URDFs: robot, carton, shelves 1–7 m, shelf generator
-│
-├── scripts/
-│   ├── train.py                  training entry point (run as `python -m scripts.train`)
-│   ├── inference.py              headless evaluation + GIF/MP4 rendering
-│   ├── evaluate_all.py           runs inference.py at 4 / 8 / 12 cartons
-│   ├── evaluate_ablation.py      comm / no comm / intervention evaluation → JSON lines
-│   ├── make_presentation_graphs.py  training-comparison + evaluation + message-analysis graphs
-│   ├── pretrain_bc.py            behaviour cloning from the greedy controller
-│   ├── check_curriculum.py       prints curriculum promotions from a TensorBoard log
-│   ├── parse_metrics.py          prints success / length metrics from several TB logs
-│   └── diagnostics/              verification, probing, demo and monitoring tools (§16)
-│
-├── tests/
-│   ├── test_environment.py       11 environment / communication unit tests
-│   └── test_post_training.py     threshold checks for a trained policy
-│
-├── models/                       trained weights (.zip) + checkpoints/
-├── tensorboard_logs/             TensorBoard event files for every run
-├── presentation_graphs/          all generated graphs + architecture diagram + env screenshot
-├── presentation_videos/          top-down demo videos (comm, no comm)
-├── repo_docs/                    earlier documentation suite (see §22 on accuracy)
-└── legacy_archive/               archived analysis docs, original spec PDF, old demos
+├── README.md                       index of the three top-level divisions
+├── final-product/                  everything needed to use and extend the project
+│   ├── README.md                   setup, how to run, structure, limitations
+│   ├── hivemind_env/               package: env.py, models.py, vec_env.py, subproc_vec_env.py, training.py, greedy.py, assets/
+│   ├── scripts/                    train.py, evaluate_ablation.py, make_presentation_graphs.py, inference.py,
+│   │                               evaluate_all.py, record_demo.py, diagnostics/
+│   ├── tests/                      test_environment.py, test_post_training.py
+│   ├── models/                     ppo_recurrent_final.zip (no comm), ppo_recurrent_comm_s0_final.zip (comm)
+│   ├── tensorboard_logs/           ppo_recurrent_30M_1 (no comm), ppo_recurrent_comm_s0_2 (comm)
+│   ├── presentation_graphs/        t1–t10 training comparisons, e1–e6 evaluation graphs, env screenshot
+│   ├── media/demo_videos/          demo_comm.mp4, demo_nocomm.mp4, demo_comm_zeroed.mp4
+│   ├── docs/                       walkthrough.md, training_instructions.md, HiveMind_presentation.pptx,
+│   │                               diagrams/ (system → env step → network, + make_diagrams.py)
+│   └── requirements.txt, pyproject.toml, uv.lock
+├── resource-guide/                 curated learning resources
+└── learning/iteration-phase/       archive: legacy_archive/, repo_docs/, earlier models/ and tensorboard_logs/,
+                                    scripts/ (pretrain_bc.py, check_curriculum.py, parse_metrics.py), presentation-drafts/
 ```
 
----
+All commands below are run from `final-product/`.
 
 ## 3. Setup
 
@@ -394,7 +370,7 @@ For robot *i*:
 
 ## 8. Neural architecture (`hivemind_env/models.py`)
 
-`presentation_graphs/architecture_diagram.png` / `.svg` shows this diagram. Every shape below was verified against the trained weights.
+`docs/diagrams/3_network_architecture.png` / `.svg` shows this diagram. Every shape below was verified against the trained weights.
 
 ### 8.1 `HiveMindExtractor` (custom `BaseFeaturesExtractor`, output 256)
 The 177-d observation is split by `OBS_SLICES`, never by literal indices:
@@ -586,7 +562,7 @@ python -m scripts.train --communication --curriculum --num-cartons 1 \
 
 ## 14. Behaviour-cloning warm start
 
-`scripts/pretrain_bc.py`:
+`learning/iteration-phase/scripts/pretrain_bc.py` (archived; run with `PYTHONPATH=final-product`):
 - **Method:** roll out the greedy controller, record (observation, action) for every robot, and fit a PPO policy's action distribution by cross-entropy. The result is saved to `models/bc_pretrained.zip`.
 - **Arguments:** `--episodes 60`, `--num-cartons 4`, `--epochs 12`, `--batch-size 512`, `--lr 1e-3`, `--out`.
 - **Result:** 76.4% action match, but 0/10 completions deterministically. The clone oscillates forward/backward because greedy uses Backward for 180° turns, so the same observation maps to two modes.
@@ -602,8 +578,7 @@ python -m scripts.train --communication --curriculum --num-cartons 1 \
 | `scripts/evaluate_all.py` | Runs `inference.py`'s `evaluate` at 4, 8 and 12 cartons and prints a summary table. |
 | `scripts/evaluate_ablation.py` | The ablation evaluator: `--variant {comm, nocomm, comm_zeroed}`, `--cartons`, `--episodes`, `--start`, `--seed0` (episode e uses seed seed0 + e, so variants see identical layouts), `--out` (JSON lines with success, steps, delivered, collisions, invalid actions, and per-step tokens, moves and carrying flags). |
 | `scripts/make_presentation_graphs.py` | From `--eval-dir` JSON lines and TensorBoard logs (`--nocomm-log`, `--comm-log`): training comparisons over an identical step range (t1–t10), evaluation graphs (e1–e6), and a summary including entropy and mutual information. |
-| `scripts/check_curriculum.py` | Prints curriculum promotions for a TensorBoard run. |
-| `scripts/parse_metrics.py` | Prints last and best success / length metrics for a list of runs. |
+| `scripts/record_demo.py` | Records one full episode top-down as MP4 (`comm`, `nocomm`, `comm_zeroed`). |
 
 **Reproducing the ablation evaluation:**
 ```bash
@@ -613,7 +588,7 @@ done
 for c in 4 8; do for v in comm nocomm; do
   python -m scripts.evaluate_ablation --variant $v --cartons $c --episodes 100 --out eval/episodes.jsonl
 done; done
-python scripts/make_presentation_graphs.py --eval-dir eval --comm-log tensorboard_logs/ppo_recurrent_comm_s0_2
+python -m scripts.make_presentation_graphs --eval-dir eval --comm-log tensorboard_logs/ppo_recurrent_comm_s0_2
 ```
 
 ---
@@ -681,12 +656,10 @@ Run with `python -m pytest tests/test_environment.py` (install pytest first).
 |---|---|
 | `models/ppo_recurrent_final.zip` | **No-comm** arm, the final RecurrentPPO model |
 | `models/ppo_recurrent_comm_s0_final.zip` | **Comm** arm, the final RecurrentPPO model |
-| `models/ppo_recurrent_30k_final.zip` | short RecurrentPPO pipeline check |
-| `models/ppo_shared_2026090*_final.zip` | earlier non-recurrent PPO runs from the pipeline's development |
-| `models/checkpoints/ppo_shared_20260905_202240_*` | periodic checkpoints of one of those earlier PPO runs |
+| `learning/iteration-phase/models/` | earlier development runs (non-recurrent PPO, pipeline checks) and their checkpoints |
 | `tensorboard_logs/ppo_recurrent_30M_1` | no-comm training log |
 | `tensorboard_logs/ppo_recurrent_comm_s0_2` | comm training log |
-| `tensorboard_logs/ppo_shared_*`, `my_first_run_*`, `ppo_recurrent_30k_1` | earlier development runs |
+| `learning/iteration-phase/tensorboard_logs/` | earlier development runs |
 
 **Loading a model** for inspection or evaluation:
 ```python
@@ -810,7 +783,7 @@ Each row is a real failure, the diagnosis behind it and the fix. Most are also d
 - **No-comm training mode isn't a flag:** the no-comm arm's zeroed-message training mode is not exposed as a `train.py` flag. `--communication` always delivers messages. The no-comm model is evaluated with zeroed slots via `evaluate_ablation.py --variant nocomm`.
 
 **Documentation:**
-- **Parts of `repo_docs/` are out of date** (files 1, 2, 5, 6 and 8). They describe a continuous action space, a different observation layout, 40 LiDAR rays over 360° and different reward values. This walkthrough and `env.py` are authoritative.
+- **Parts of `learning/iteration-phase/repo_docs/` are out of date** (files 1, 2, 5, 6 and 8). They describe a continuous action space, a different observation layout, 40 LiDAR rays over 360° and different reward values. This walkthrough and `env.py` are authoritative.
 - **Stale comments:** comments in `env.py`, `training.py` and `train.py` still quote the specification's 0.9 / 0.1 split and a −5 shared collision. The code uses 0.8 / 0.2 and −1 shared / −5 individual.
 
 **Scope limits:**
@@ -824,17 +797,16 @@ Each row is a real failure, the diagnosis behind it and the fix. Most are also d
 
 | File | Content |
 |---|---|
-| `presentation-final-content.md` | slide-by-slide content |
-| `presentation.md` | long-form reference, including the full reward mathematics |
-| `HiveMind_presentation.pdf` | rendered 16:9 deck |
-| `presentation_graphs/architecture_diagram.{png,svg}` | verified architecture diagram |
+| `docs/HiveMind_presentation.pptx` | project presentation |
+| `docs/diagrams/1_system_architecture.png` | system-level data and control flow |
+| `docs/diagrams/2_env_step_flow.png` | one environment step, in order |
+| `docs/diagrams/3_network_architecture.png` | verified network architecture |
 | `presentation_graphs/env_topdown.png` | top-down warehouse screenshot |
 | `presentation_graphs/t1–t10_*_compare.png` | training comparisons: success, episode length, reward, entropy, KL, explained variance, curriculum, total loss, value loss, policy-gradient loss |
 | `presentation_graphs/e1–e6_*.png` | success by carton count, steps to finish, collisions, intervention test, token usage, token vs robot state |
 | `presentation_graphs/1–6_*.png` | earlier no-comm-only graphs |
-| `presentation_videos/demo_comm.mp4`, `demo_nocomm.mp4` | full 12-carton episodes, top-down, same layout |
-
----
+| `media/demo_videos/demo_{comm,nocomm,comm_zeroed}.mp4` | full 12-carton episodes, top-down, same layout |
+| `learning/iteration-phase/presentation-drafts/` | earlier slide content, long-form reference and PDF deck |
 
 ## 24. Git branches and contributors
 
@@ -848,4 +820,4 @@ Each row is a real failure, the diagnosis behind it and the fix. Most are also d
 
 - **History:** the repository began on 2026-08-27; this branch has 57 commits.
 - **Contributors:** karmanyaiitj, Udayrajsinh Vala, codr-shiv and Het Thakkar.
-- **Specification:** `legacy_archive/old_reference_and_media/MAWC_Technical_Specification.pdf` defines the reward table and the LiDAR / vocabulary targets the environment follows.
+- **Specification:** `learning/iteration-phase/legacy_archive/old_reference_and_media/MAWC_Technical_Specification.pdf` defines the reward table and the LiDAR / vocabulary targets the environment follows.
